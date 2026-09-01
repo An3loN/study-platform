@@ -1,0 +1,13 @@
+FROM node:20-alpine
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+
+# Копируем конфиги (vite.config.ts, tsconfig.json, index.html).
+# node_modules исключён через .dockerignore.
+# src/ и public/ перекрываются volume-монтированием из docker-compose.dev.yml.
+COPY . .
+
+EXPOSE 5173
+CMD ["npm", "run", "dev"]

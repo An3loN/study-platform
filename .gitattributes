@@ -1,0 +1,12 @@
+# Переводы строк нормализуем в LF: файлы уезжают в Linux-контейнеры,
+# и entrypoint.sh с CRLF там просто не запустится.
+* text=auto eol=lf
+
+# Бинарники не трогаем
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.svg text
+*.woff2 binary
+*.pdf binary

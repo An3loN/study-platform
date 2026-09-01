@@ -1,0 +1,17 @@
+.git
+.env
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info
+.eggs
+dist
+build
+*.log
+.coverage
+htmlcov
+.pytest_cache
+staticfiles
+media

@@ -1,0 +1,95 @@
+services:
+
+  # ── Reverse proxy ───────────────────────────────────────────────────────────
+  nginx:
+    build: ./nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+      - frontend
+      - hocuspocus
+    volumes:
+      - static_files:/app/staticfiles:ro
+      - media_files:/app/media:ro
+
+  # ── React SPA (built, served by nginx) ─────────────────────────────────────
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+
+  # ── Django ASGI (Daphne) ────────────────────────────────────────────────────
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    command: sh entrypoint.sh
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.prod
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - static_files:/app/staticfiles
+      - media_files:/app/media
+
+  # ── Hocuspocus (Yjs collaboration server) ──────────────────────────────────
+  hocuspocus:
+    build: ./hocuspocus
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+
+  # ── Celery worker ───────────────────────────────────────────────────────────
+  celery:
+    build: ./backend
+    restart: unless-stopped
+    command: celery -A config worker -l info --concurrency=2
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.prod
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
+  redis_data:
+  static_files:
+  media_files:
