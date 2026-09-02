@@ -5,6 +5,7 @@ import { Chat } from '@/components/Lesson/Chat'
 import { LessonSidebar } from '@/components/Lesson/LessonSidebar'
 import { useLessonRoom } from '@/hooks/useLessonRoom'
 import { lessonsApi } from '@/services/api'
+import { loadGuestSession, saveGuestSession, clearGuestSession } from '@/utils/guestSession'
 import type { GuestSession, LessonShare } from '@/types'
 import { STATUS_LABEL, formatDateTime, formatDuration, lessonTitle } from '@/utils/format'
 
@@ -15,7 +16,11 @@ import { STATUS_LABEL, formatDateTime, formatDuration, lessonTitle } from '@/uti
 export function GuestLessonPage() {
   const { shareToken } = useParams<{ shareToken: string }>()
   const [lesson, setLesson] = useState<LessonShare | null>(null)
-  const [session, setSession] = useState<GuestSession | null>(null)
+  // Сессия восстанавливается из sessionStorage: перезагрузка страницы не должна
+  // выкидывать гостя обратно на форму с именем
+  const [session, setSession] = useState<GuestSession | null>(
+    () => (shareToken ? loadGuestSession(shareToken) : null),
+  )
   const [name, setName] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -40,6 +45,7 @@ export function GuestLessonPage() {
     setJoining(true)
     try {
       const { data } = await lessonsApi.join(shareToken, name.trim())
+      saveGuestSession(shareToken, data)
       setSession(data)
     } catch (err) {
       const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
@@ -47,6 +53,12 @@ export function GuestLessonPage() {
     } finally {
       setJoining(false)
     }
+  }
+
+  const handleLeave = () => {
+    if (shareToken) clearGuestSession(shareToken)
+    setSession(null)
+    setName('')
   }
 
   if (loading) {
@@ -62,9 +74,11 @@ export function GuestLessonPage() {
     )
   }
 
-  // Гость представился — показываем доску и чат
+  // Гость представился — показываем доску и чат.
+  // Данные урока берём из свежего lesson, а не из session: сессия могла быть
+  // сохранена час назад, за это время урок мог и завершиться.
   if (session) {
-    const conferenceUrl = session.lesson.comment.match(/https?:\/\/\S+/)?.[0] ?? null
+    const conferenceUrl = lesson.comment.match(/https?:\/\/\S+/)?.[0] ?? null
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
@@ -80,10 +94,10 @@ export function GuestLessonPage() {
           flexShrink: 0,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-            <h2 style={{ fontSize: 15, fontWeight: 600 }}>{lessonTitle(session.lesson)}</h2>
-            <span className={`badge badge-${session.lesson.status}`}>{STATUS_LABEL[session.lesson.status]}</span>
+            <h2 style={{ fontSize: 15, fontWeight: 600 }}>{lessonTitle(lesson)}</h2>
+            <span className={`badge badge-${lesson.status}`}>{STATUS_LABEL[lesson.status]}</span>
             <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
-              {session.lesson.teacherName}
+              {lesson.teacherName}
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
@@ -93,6 +107,9 @@ export function GuestLessonPage() {
               </a>
             )}
             <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>Вы вошли как {session.name}</span>
+            {/* Раньше сменить имя можно было перезагрузкой страницы — теперь она
+                сессию сохраняет, поэтому нужен явный выход */}
+            <button className="btn-secondary" onClick={handleLeave}>Выйти</button>
           </div>
         </header>
 
@@ -101,7 +118,8 @@ export function GuestLessonPage() {
             <WhiteboardRoom
               roomId={session.roomId}
               accessToken={session.access}
-              readonly={session.lesson.status === 'finished'}
+              username={session.name}
+              readonly={lesson.status === 'finished'}
             />
           </div>
           <LessonSidebar
