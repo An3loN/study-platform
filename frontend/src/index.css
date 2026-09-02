@@ -434,6 +434,19 @@ input:focus, textarea:focus, select:focus {
    макете они разные, поэтому здесь размер проставляется явно. Скругление тоже:
    по умолчанию Excalidraw скругляет группу снаружи, а в макете каждая кнопка
    скруглена сама по себе. */
+/* Кнопки внутри карточек прозрачные — серый в макете только на наведении.
+   Свой фон Excalidraw берёт из --color-surface-low, а он у нас отдан под
+   --ink-100: на белой карточке это выглядело сплошной серой заливкой. */
+.wb-board .excalidraw .undo-redo-buttons button,
+.wb-board .excalidraw .zoom-actions button {
+  background: transparent !important;
+  color: var(--ink-600);
+}
+.wb-board .excalidraw .undo-redo-buttons button:hover,
+.wb-board .excalidraw .zoom-actions button:hover {
+  background: var(--ink-50) !important;
+}
+
 .wb-board .excalidraw .undo-redo-buttons button,
 .wb-board .excalidraw .zoom-actions button:not(.reset-zoom-button),
 .wb-board .excalidraw .undo-redo-buttons .ToolIcon__icon,
