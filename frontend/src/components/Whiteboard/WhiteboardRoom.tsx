@@ -17,6 +17,8 @@ interface Props {
   accessToken: string
   /** Имя, которое видят остальные рядом с курсором */
   username?: string
+  /** Состав комнаты — его показывает шапка урока аватарками */
+  onParticipantsChange?: (names: string[]) => void
 }
 
 type SyncStatus = 'connecting' | 'connected' | 'disconnected' | 'forbidden'
@@ -34,8 +36,8 @@ const STATUS_COLOR: Record<SyncStatus, string> = {
   forbidden: '#e53935',
 }
 
-// Шаг сетки на фоне доски
-const GRID_SIZE = 20
+// Шаг сетки на фоне доски — 24 px, как клетка в дизайне
+const GRID_SIZE = 24
 
 // Как часто отправлять изменения. Excalidraw дёргает onChange на каждую точку
 // штриха, а каждое изменение — это полный снимок элемента, поэтому шлём пачками.
@@ -111,7 +113,7 @@ function boardUrl(): string {
   return `${protocol}//${window.location.host}/board`
 }
 
-export function WhiteboardRoom({ roomId, accessToken, username }: Props) {
+export function WhiteboardRoom({ roomId, accessToken, username, onParticipantsChange }: Props) {
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(null)
   const ydocRef = useRef<Y.Doc | null>(null)
   const providerRef = useRef<HocuspocusProvider | null>(null)
@@ -156,6 +158,11 @@ export function WhiteboardRoom({ roomId, accessToken, username }: Props) {
   const [strokeWidth, setStrokeWidth] = useState(1)
   const [activeTool, setActiveTool] = useState('selection')
   const [participants, setParticipants] = useState<string[]>([])
+
+  // Через ref, чтобы смена обработчика не пересоздавала подписку на awareness
+  const onParticipantsRef = useRef(onParticipantsChange)
+  onParticipantsRef.current = onParticipantsChange
+  useEffect(() => { onParticipantsRef.current?.(participants) }, [participants])
 
   /**
    * Секция «Stroke width» в левой панели Excalidraw — в неё встраивается
@@ -682,32 +689,7 @@ export function WhiteboardRoom({ roomId, accessToken, username }: Props) {
   const showStrokeSlider = activeTool === 'freedraw'
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Статус синхронизации */}
-      <div style={{
-        padding: '4px 12px',
-        background: 'var(--color-surface)',
-        borderBottom: '1px solid var(--color-border)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 6,
-        fontSize: 12,
-        color: 'var(--color-text-secondary)',
-      }}>
-        <span style={{
-          width: 8, height: 8, borderRadius: '50%',
-          background: STATUS_COLOR[status],
-          display: 'inline-block',
-        }} />
-        {STATUS_LABEL[status]}
-
-        {participants.length > 0 && (
-          <span style={{ marginLeft: 'auto', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            В комнате: {participants.join(', ')}
-          </span>
-        )}
-      </div>
-
+    <div style={{ position: 'relative', height: '100%', overflow: 'hidden' }}>
       {/**
         * Слайдер толщины живёт в секции «Stroke width» левой панели Excalidraw,
         * рядом с остальными свойствами инструмента. Показываем его только для
@@ -756,11 +738,42 @@ export function WhiteboardRoom({ roomId, accessToken, username }: Props) {
         toolbarSlot,
       )}
 
-      {/* Excalidraw занимает оставшееся пространство */}
+      {/**
+        * Состояние связи в дизайне не показано — и правильно, в норме оно
+        * ничего не сообщает. Показываем только когда оно перестало быть нормой.
+        */}
+      {status !== 'connected' && (
+        <div style={{
+          position: 'absolute',
+          top: 16,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 5,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          height: 32,
+          padding: '0 12px',
+          borderRadius: 'var(--radius-pill)',
+          background: 'var(--ink-900)',
+          color: 'var(--ink-0)',
+          font: '600 13px/1 var(--font-ui)',
+          boxShadow: 'var(--shadow-md)',
+          pointerEvents: 'none',
+        }}>
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%',
+            background: STATUS_COLOR[status],
+            display: 'inline-block',
+          }} />
+          {STATUS_LABEL[status]}
+        </div>
+      )}
+
       <div
         ref={canvasWrapRef}
-        className={showStrokeSlider ? 'wb-stroke-slider' : undefined}
-        style={{ flex: 1, overflow: 'hidden' }}
+        className={showStrokeSlider ? 'wb-board wb-stroke-slider' : 'wb-board'}
+        style={{ position: 'absolute', inset: 0 }}
       >
         <Excalidraw
           excalidrawAPI={(api) => {

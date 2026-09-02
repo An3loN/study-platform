@@ -7,6 +7,7 @@ import { HomeworkPanel } from '@/components/Lesson/HomeworkPanel'
 import { LessonSidebar, type SidebarTab } from '@/components/Lesson/LessonSidebar'
 import { Modal } from '@/components/UI/Modal'
 import { ShareBlock } from '@/components/UI/ShareBlock'
+import { Avatars } from '@/components/UI/Avatars'
 import { lessonsApi, studentsApi } from '@/services/api'
 import { useAuthStore } from '@/store/authStore'
 import type { LessonDetail, Student } from '@/types'
@@ -25,6 +26,8 @@ export function LessonPage() {
   const [shareModal, setShareModal] = useState(false)
   const [editModal, setEditModal] = useState(false)
   const [commentModal, setCommentModal] = useState(false)
+  // Состав комнаты приходит из доски: он же рисует там курсоры
+  const [participants, setParticipants] = useState<string[]>([])
 
   const user = useAuthStore((s) => s.user)
   const accessToken = useAuthStore((s) => s.accessToken)
@@ -74,12 +77,25 @@ export function LessonPage() {
       ? [{
           key: 'notes',
           label: 'Заметки',
+          icon: (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z" />
+              <path d="M15 3v6h6" />
+            </svg>
+          ),
           render: () => <LessonNotes lessonId={lesson.id} value={lesson.notes ?? ''} onSaved={load} />,
         }]
       : []),
     {
       key: 'homework',
-      label: `ДЗ${lesson.homework.length ? ` · ${lesson.homework.length}` : ''}`,
+      label: 'Домашнее задание',
+      badge: lesson.homework.length,
+      icon: (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 7v14" />
+          <path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z" />
+        </svg>
+      ),
       render: () => <HomeworkPanel lesson={lesson} isTeacher={isTeacher} onChanged={load} />,
     },
   ]
@@ -87,58 +103,66 @@ export function LessonPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       {/* Шапка урока */}
-      <header style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 12,
-        padding: '0 16px',
-        height: 48,
-        background: 'var(--color-surface)',
-        borderBottom: '1px solid var(--color-border)',
-        flexShrink: 0,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-          <Link to="/" style={{ color: 'var(--color-text-secondary)', fontSize: 13, whiteSpace: 'nowrap' }}>
-            ← Назад
+      <header className="lesson-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          <Link to="/" className="icon-button" title="На главную">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
           </Link>
-          <h2 style={{ fontSize: 15, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {lessonTitle(lesson)}
-          </h2>
+          <div className="lesson-header__divider" />
+          <h1 className="lesson-header__title">{lessonTitle(lesson)}</h1>
           <span className={`badge badge-${lesson.status}`}>{STATUS_LABEL[lesson.status]}</span>
-          <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
+          <span className="lesson-header__meta">
             {formatDateTime(lesson.scheduledAt)} · {formatDuration(lesson.duration)}
           </span>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12, flex: 'none' }}>
+          <Avatars names={participants} self={user?.displayName} teacher={lesson.teacher.displayName} />
+          {participants.length > 0 && <div className="lesson-header__divider" />}
+
           {conferenceUrl && (
-            <a href={conferenceUrl} target="_blank" rel="noreferrer">
-              <button className="btn-secondary">Конференция</button>
+            <a href={conferenceUrl} target="_blank" rel="noreferrer" className="header-button">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5" />
+                <rect x="2" y="6" width="14" height="12" rx="2" />
+              </svg>
+              Конференция
             </a>
           )}
           {hasComment && (
-            <button className="btn-secondary" onClick={() => setCommentModal(true)}>Комментарий</button>
+            <button className="header-button" onClick={() => setCommentModal(true)}>Комментарий</button>
           )}
           {isTeacher && (
             <>
-              <button className="btn-secondary" onClick={() => setShareModal(true)}>Ссылка на вход</button>
-              <button className="btn-secondary" onClick={() => setEditModal(true)}>Изменить</button>
+              <button className="header-button" onClick={() => setEditModal(true)}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                  <path d="M18.375 2.625a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4Z" />
+                </svg>
+                Изменить урок
+              </button>
+              <button className="header-button header-button--accent" onClick={() => setShareModal(true)}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                </svg>
+                Гостевая ссылка
+              </button>
             </>
           )}
         </div>
       </header>
 
-      {/* Доска + боковая панель */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        <div style={{ flex: 1, overflow: 'hidden' }}>
-          <WhiteboardRoom
-            roomId={lesson.roomId}
-            accessToken={accessToken}
-            username={user?.displayName}
-          />
-        </div>
-
+      {/* Доска на всю площадь, панель — поверх неё */}
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        <WhiteboardRoom
+          roomId={lesson.roomId}
+          accessToken={accessToken}
+          username={user?.displayName}
+          onParticipantsChange={setParticipants}
+        />
         <LessonSidebar tabs={tabs} />
       </div>
 

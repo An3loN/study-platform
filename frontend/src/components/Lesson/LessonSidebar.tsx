@@ -3,7 +3,9 @@ import { useEffect, useState, type ReactNode } from 'react'
 export interface SidebarTab {
   key: string
   label: string
-  /** Число рядом с названием (например, непрочитанные сообщения) */
+  /** Иконка в корешке и в заголовке панели */
+  icon?: ReactNode
+  /** Число рядом с названием — например, количество заданий */
   badge?: number
   render: () => ReactNode
 }
@@ -16,138 +18,65 @@ interface Props {
   onVisibleTabChange?: (key: string | null) => void
 }
 
-const WIDTH_OPEN = 320
-const WIDTH_CLOSED = 40
-
-/** Боковая панель урока: сворачивается, чтобы отдать место доске. */
+/**
+ * Панель урока лежит НАД доской, а не отбирает у неё ширину: доска — главное,
+ * а заметки и ДЗ открывают на минуту. Свёрнутая панель остаётся узкими
+ * корешками у правого края, открытая — стеклянной карточкой поверх холста.
+ */
 export function LessonSidebar({ tabs, storageKey = 'lesson_sidebar', onVisibleTabChange }: Props) {
-  const [open, setOpen] = useState(() => localStorage.getItem(storageKey) !== 'closed')
-  const [activeKey, setActiveKey] = useState(tabs[0]?.key ?? '')
+  const [openKey, setOpenKey] = useState<string | null>(() => {
+    const saved = localStorage.getItem(storageKey)
+    return saved && tabs.some((tab) => tab.key === saved) ? saved : null
+  })
 
-  const active = tabs.find((tab) => tab.key === activeKey) ?? tabs[0]
-
-  useEffect(() => {
-    localStorage.setItem(storageKey, open ? 'open' : 'closed')
-  }, [open, storageKey])
+  const active = tabs.find((tab) => tab.key === openKey) ?? null
 
   useEffect(() => {
-    onVisibleTabChange?.(open ? active?.key ?? null : null)
-  }, [open, active?.key, onVisibleTabChange])
+    localStorage.setItem(storageKey, active?.key ?? '')
+  }, [active?.key, storageKey])
 
-  const show = (key: string) => {
-    setActiveKey(key)
-    setOpen(true)
-  }
+  useEffect(() => {
+    onVisibleTabChange?.(active?.key ?? null)
+  }, [active?.key, onVisibleTabChange])
 
-  if (!open) {
-    return (
-      <aside style={{
-        width: WIDTH_CLOSED,
-        flexShrink: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: 4,
-        padding: '8px 0',
-        background: 'var(--color-surface)',
-        borderLeft: '1px solid var(--color-border)',
-      }}>
-        <button
-          onClick={() => setOpen(true)}
-          title="Показать панель"
-          className="btn-secondary"
-          style={{ padding: '4px 8px', border: 'none', fontSize: 14 }}
-        >
-          ‹
-        </button>
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => show(tab.key)}
-            title={tab.label}
-            style={{
-              background: 'transparent',
-              padding: '10px 2px',
-              fontSize: 12,
-              color: 'var(--color-text-secondary)',
-              writingMode: 'vertical-rl',
-              position: 'relative',
-            }}
-          >
-            {tab.label}
-            {!!tab.badge && (
-              <span style={{
-                position: 'absolute',
-                top: 2,
-                right: 2,
-                width: 7,
-                height: 7,
-                borderRadius: '50%',
-                background: 'var(--color-danger)',
-              }} />
-            )}
-          </button>
-        ))}
-      </aside>
-    )
-  }
+  // Корешки закрытых вкладок стоят у края, а при открытой панели — слева от неё
+  const railTabs = tabs.filter((tab) => tab.key !== active?.key)
 
   return (
-    <aside style={{
-      width: WIDTH_OPEN,
-      flexShrink: 0,
-      display: 'flex',
-      flexDirection: 'column',
-      background: 'var(--color-surface)',
-      borderLeft: '1px solid var(--color-border)',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'stretch', borderBottom: '1px solid var(--color-border)', flexShrink: 0 }}>
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveKey(tab.key)}
-            style={{
-              flex: 1,
-              padding: '10px 6px',
-              fontSize: 13,
-              fontWeight: active?.key === tab.key ? 600 : 400,
-              background: 'transparent',
-              borderRadius: 0,
-              borderBottom: `2px solid ${active?.key === tab.key ? 'var(--color-primary)' : 'transparent'}`,
-              color: active?.key === tab.key ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-            }}
-          >
-            {tab.label}
-            {!!tab.badge && (
-              <span style={{
-                marginLeft: 4,
-                fontSize: 11,
-                fontWeight: 600,
-                color: 'var(--color-danger)',
-              }}>
-                {tab.badge}
-              </span>
-            )}
-          </button>
-        ))}
-        <button
-          onClick={() => setOpen(false)}
-          title="Свернуть панель"
-          style={{
-            background: 'transparent',
-            padding: '10px 10px',
-            borderRadius: 0,
-            color: 'var(--color-text-secondary)',
-            fontSize: 14,
-          }}
-        >
-          ›
-        </button>
-      </div>
+    <>
+      {railTabs.length > 0 && (
+        <div className="side-rail" style={active ? { right: 392 } : undefined}>
+          {railTabs.map((tab) => (
+            <button
+              key={tab.key}
+              className="side-rail__tab"
+              title={tab.label}
+              onClick={() => setOpenKey(tab.key)}
+            >
+              {tab.icon}
+              <span className="side-rail__label">{tab.label}</span>
+              {!!tab.badge && <span className="side-rail__dot" />}
+            </button>
+          ))}
+        </div>
+      )}
 
-      <div style={{ flex: 1, overflow: 'hidden' }}>
-        {active?.render()}
-      </div>
-    </aside>
+      {active && (
+        <aside className="side-panel">
+          <div className="side-panel__head">
+            {active.icon}
+            <span>{active.label}</span>
+            {!!active.badge && <span className="side-panel__count">{active.badge}</span>}
+            <button className="side-panel__close" title="Закрыть" onClick={() => setOpenKey(null)}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 6 6 18" />
+                <path d="m6 6 12 12" />
+              </svg>
+            </button>
+          </div>
+          <div className="side-panel__body">{active.render()}</div>
+        </aside>
+      )}
+    </>
   )
 }
