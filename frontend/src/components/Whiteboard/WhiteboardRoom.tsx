@@ -579,9 +579,10 @@ export function WhiteboardRoom({ roomId, accessToken, username, onParticipantsCh
      * svg, а не на кнопку: если React перерисует содержимое своей иконкой,
      * метка пропадёт вместе с ней и мы нарисуем заново.
      */
-    const paintIcon = (host: Element | null | undefined, name: string, size = 20) => {
+    const paintIcon = (host: Element | null | undefined, name: string, size?: number) => {
       const svg = host?.querySelector('svg')
       if (!svg || svg.getAttribute('data-wb-icon') === name) return
+      // size не передаём, когда его нет: iconMarkup возьмёт размер из макета
       svg.outerHTML = iconMarkup(name, size)
     }
 

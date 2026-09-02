@@ -21,8 +21,8 @@ export const TOOL_ICON_PATHS: Record<string, string> = {
   eraser:
     '<path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/>'
     + '<path d="M22 21H7"/><path d="m5 11 9 9"/>',
-  line: '<path d="M5 12h14"/>',
-  arrow: '<path d="M7 7h10v10"/><path d="M7 17 17 7"/>',
+  line: '<path d="M3 12h18"/>',
+  arrow: '<path d="M6 18 18 6"/><path d="M11 6h7v7"/>',
   shapes:
     '<path d="M8.3 10a.7.7 0 0 1-.626-1.079L11.4 3a.7.7 0 0 1 1.198-.043L16.3 8.9a.7.7 0 0 1-.572 1.1Z"/>'
     + '<circle cx="17" cy="17" r="5"/><rect width="9" height="9" x="2" y="13" rx="1"/>',
@@ -57,7 +57,15 @@ export const TOOLBAR_ICON_BY_TESTID: Record<string, string> = {
   'toolbar-image': 'image',
 }
 
-export function iconMarkup(name: string, size = 20): string {
+/**
+ * Размер там, где макет отходит от общих 20 px: у прямой контур занимает всю
+ * ширину viewBox, и при 20 px она выглядела короче остальных иконок.
+ */
+const TOOL_ICON_SIZE: Record<string, number> = {
+  line: 22,
+}
+
+export function iconMarkup(name: string, size = TOOL_ICON_SIZE[name] ?? 20): string {
   return `<svg data-wb-icon="${name}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none"`
     + ' stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'
     + ` style="display:block;flex:none">${TOOL_ICON_PATHS[name]}</svg>`
