@@ -142,6 +142,8 @@ export const lessonsApi = {
   create: (data: LessonInput) => http.post<LessonDetail>('/lessons/', data),
   update: (id: string, data: LessonInput) => http.patch<LessonDetail>(`/lessons/${id}/`, data),
   remove: (id: string) => http.delete(`/lessons/${id}/`),
+  cancel: (id: string, reason: string) =>
+    http.post<LessonDetail>(`/lessons/${id}/cancel/`, { reason }),
   shareQrUrl: (shareToken: string) => `/api/lessons/share/${shareToken}/qr.svg`,
 
   // Вход по ссылке — без аккаунта

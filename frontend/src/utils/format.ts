@@ -4,6 +4,7 @@ export const STATUS_LABEL: Record<LessonStatus, string> = {
   scheduled: 'Запланирован',
   active: 'Идёт',
   finished: 'Завершён',
+  cancelled: 'Отменён',
 }
 
 /** 27 авг, 14:30 — без года, если год текущий */

@@ -142,6 +142,37 @@ class LessonDetailView(generics.RetrieveUpdateDestroyAPIView):
         return Response(LessonDetailSerializer(lesson, context=self.get_serializer_context()).data)
 
 
+class LessonCancelView(APIView):
+    """
+    Отмена урока с причиной. Доступна обеим сторонам: у ученика тоже бывают
+    обстоятельства, и об этом лучше узнать из системы, чем из тишины.
+    Удалить урок может только преподаватель — это делает LessonDetailView.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        lesson = get_object_or_404(Lesson, pk=pk)
+        if not lesson.is_participant(request.user):
+            return Response({'detail': 'Нет доступа к уроку.'}, status=status.HTTP_403_FORBIDDEN)
+
+        if lesson.cancelled_at:
+            return Response({'detail': 'Урок уже отменён.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        reason = str(request.data.get('reason', '')).strip()
+        if not reason:
+            return Response(
+                {'detail': 'Укажите причину отмены — её увидит вторая сторона.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        lesson.cancelled_at = timezone.now()
+        lesson.cancelled_by = request.user
+        lesson.cancel_reason = reason
+        lesson.save(update_fields=['cancelled_at', 'cancelled_by', 'cancel_reason'])
+
+        return Response(LessonDetailSerializer(lesson, context={'request': request}).data)
+
+
 # ── Вход по ссылке ───────────────────────────────────────────────────────────
 
 class ShareLinkExpired(exceptions.APIException):

@@ -5,6 +5,8 @@ import { Modal } from '@/components/UI/Modal'
 import { ShareBlock } from '@/components/UI/ShareBlock'
 import { StudentForm } from '@/components/Students/StudentForm'
 import { LessonForm } from '@/components/Lesson/LessonForm'
+import { CancelLessonModal } from '@/components/Lesson/CancelLessonModal'
+import { Menu, type MenuItem } from '@/components/UI/Menu'
 import { studentsApi, lessonsApi } from '@/services/api'
 import type { Lesson, Student } from '@/types'
 import { STATUS_LABEL, formatDateTime, formatDuration, lessonTitle } from '@/utils/format'
@@ -18,6 +20,9 @@ export function TeacherDashboard() {
   const [lessonModal, setLessonModal] = useState(false)
   // Свежесозданный ученик — показываем ссылку и QR сразу после создания
   const [invited, setInvited] = useState<Student | null>(null)
+  // Урок, для которого открыта отмена или подтверждение удаления
+  const [cancelling, setCancelling] = useState<Lesson | null>(null)
+  const [deleting, setDeleting] = useState<Lesson | null>(null)
 
   const load = useCallback(async () => {
     const [studentsRes, lessonsRes] = await Promise.all([
@@ -30,6 +35,32 @@ export function TeacherDashboard() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  /**
+   * Действия над уроком: отмена — с причиной, удаление — насовсем.
+   * Удалять может только преподаватель, поэтому пункт есть лишь здесь.
+   */
+  const lessonMenu = (lesson: Lesson): MenuItem[] => [
+    ...(lesson.status === 'cancelled' ? [] : [{
+      key: 'cancel',
+      label: 'Отменить урок',
+      danger: true,
+      onSelect: () => setCancelling(lesson),
+    }]),
+    {
+      key: 'delete',
+      label: 'Удалить урок',
+      danger: true,
+      onSelect: () => setDeleting(lesson),
+    },
+  ]
+
+  const handleDelete = async () => {
+    if (!deleting) return
+    await lessonsApi.remove(deleting.id)
+    setDeleting(null)
+    await load()
+  }
 
   const handleCreateStudent = async (data: Parameters<typeof studentsApi.create>[0]) => {
     const { data: student } = await studentsApi.create(data)
@@ -94,7 +125,11 @@ export function TeacherDashboard() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {lessons.map((lesson) => (
-              <div key={lesson.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div
+                key={lesson.id}
+                className={`card${lesson.status === 'cancelled' ? ' lesson-row--cancelled' : ''}`}
+                style={{ display: 'flex', alignItems: 'center', gap: 16 }}
+              >
                 <div style={{ flex: 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
                     <h4 style={{ fontSize: 15, fontWeight: 600 }}>{lessonTitle(lesson)}</h4>
@@ -105,12 +140,20 @@ export function TeacherDashboard() {
                     {lesson.students.length > 0 && ' · '}
                     {lesson.students.map((s) => s.displayName).join(', ')}
                   </p>
+                  {lesson.cancelReason && (
+                    <p className="lesson-row__reason">
+                      Отменил {lesson.cancelledByName}: {lesson.cancelReason}
+                    </p>
+                  )}
                 </div>
+
                 <Link to={`/lessons/${lesson.id}`}>
                   <button className={lesson.status === 'active' ? 'btn-primary' : 'btn-secondary'}>
                     {lesson.status === 'active' ? 'Войти' : 'Открыть'}
                   </button>
                 </Link>
+
+                <Menu items={lessonMenu(lesson)} />
               </div>
             ))}
             {!loading && lessons.length === 0 && (
@@ -154,6 +197,30 @@ export function TeacherDashboard() {
             onSubmit={handleCreateLesson}
             onCancel={() => setLessonModal(false)}
           />
+        </Modal>
+      )}
+
+      {cancelling && (
+        <CancelLessonModal
+          lesson={cancelling}
+          onClose={() => setCancelling(null)}
+          onCancelled={load}
+        />
+      )}
+
+      {deleting && (
+        <Modal title="Удалить урок" onClose={() => setDeleting(null)}>
+          <p style={{ fontSize: 14, marginBottom: 16 }}>
+            {lessonTitle(deleting)} · {formatDateTime(deleting.scheduledAt)}
+          </p>
+          <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 20 }}>
+            Урок исчезнет вместе с доской, заметками и домашними заданиями. Если нужно просто
+            сообщить об отмене — отмените урок с причиной, он останется в списке.
+          </p>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button className="header-button" onClick={() => setDeleting(null)}>Не удалять</button>
+            <button className="btn-danger" onClick={handleDelete}>Удалить насовсем</button>
+          </div>
         </Modal>
       )}
     </Layout>

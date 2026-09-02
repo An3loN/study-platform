@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Layout } from '@/components/UI/Layout'
+import { CancelLessonModal } from '@/components/Lesson/CancelLessonModal'
+import { Menu } from '@/components/UI/Menu'
 import { lessonsApi, homeworkApi } from '@/services/api'
 import type { Homework, Lesson } from '@/types'
 import { STATUS_LABEL, formatDateTime, formatDuration, lessonTitle } from '@/utils/format'
@@ -9,15 +11,20 @@ export function StudentDashboard() {
   const [lessons, setLessons] = useState<Lesson[]>([])
   const [homework, setHomework] = useState<Homework[]>([])
   const [loading, setLoading] = useState(true)
+  // Урок, для которого открыта отмена
+  const [cancelling, setCancelling] = useState<Lesson | null>(null)
 
-  useEffect(() => {
-    Promise.all([lessonsApi.list({ upcoming: true }), homeworkApi.my()])
-      .then(([lessonsRes, homeworkRes]) => {
-        setLessons(lessonsRes.data.results)
-        setHomework(homeworkRes.data.results)
-      })
-      .finally(() => setLoading(false))
+  const load = useCallback(async () => {
+    const [lessonsRes, homeworkRes] = await Promise.all([
+      lessonsApi.list({ upcoming: true }),
+      homeworkApi.my(),
+    ])
+    setLessons(lessonsRes.data.results)
+    setHomework(homeworkRes.data.results)
+    setLoading(false)
   }, [])
+
+  useEffect(() => { load() }, [load])
 
   const toggleDone = async (item: Homework) => {
     const { data } = await homeworkApi.setDone(item.id, !item.isDone)
@@ -34,7 +41,11 @@ export function StudentDashboard() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {lessons.map((lesson) => (
-              <div key={lesson.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div
+                key={lesson.id}
+                className={`card${lesson.status === 'cancelled' ? ' lesson-row--cancelled' : ''}`}
+                style={{ display: 'flex', alignItems: 'center', gap: 16 }}
+              >
                 <div style={{ flex: 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
                     <h4 style={{ fontSize: 15, fontWeight: 600 }}>{lessonTitle(lesson)}</h4>
@@ -46,12 +57,30 @@ export function StudentDashboard() {
                   {lesson.comment && (
                     <p style={{ fontSize: 13, marginTop: 6, whiteSpace: 'pre-wrap' }}>{lesson.comment}</p>
                   )}
+                  {lesson.cancelReason && (
+                    <p className="lesson-row__reason">
+                      Отменил {lesson.cancelledByName}: {lesson.cancelReason}
+                    </p>
+                  )}
                 </div>
+
                 <Link to={`/lessons/${lesson.id}`}>
                   <button className={lesson.status === 'active' ? 'btn-primary' : 'btn-secondary'}>
                     {lesson.status === 'active' ? 'Войти' : 'Открыть'}
                   </button>
                 </Link>
+
+                {/* Удалять урок ученик не может — только сообщить, что не придёт */}
+                {lesson.status !== 'cancelled' && (
+                  <Menu
+                    items={[{
+                      key: 'cancel',
+                      label: 'Отменить урок',
+                      danger: true,
+                      onSelect: () => setCancelling(lesson),
+                    }]}
+                  />
+                )}
               </div>
             ))}
             {!loading && lessons.length === 0 && (
@@ -102,6 +131,14 @@ export function StudentDashboard() {
           </div>
         </section>
       </div>
+
+      {cancelling && (
+        <CancelLessonModal
+          lesson={cancelling}
+          onClose={() => setCancelling(null)}
+          onCancelled={load}
+        />
+      )}
     </Layout>
   )
 }

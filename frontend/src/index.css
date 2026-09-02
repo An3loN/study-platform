@@ -579,3 +579,43 @@ input:focus, textarea:focus, select:focus {
 .wb-board .excalidraw [data-testid='main-menu-trigger'] {
   display: none;
 }
+
+.badge-cancelled { background: var(--coral-50); color: var(--coral-600); }
+
+/* ── Меню действий ────────────────────────────────────────────────────────── */
+.menu { position: relative; display: flex; }
+.menu__list {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 184px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--ink-0);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lg);
+}
+.menu__item {
+  text-align: left;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--ink-700);
+  font: 500 14px/1 var(--font-ui);
+}
+.menu__item:hover { background: var(--ink-50); }
+.menu__item--danger { color: var(--coral-600); }
+.menu__item--danger:hover { background: var(--coral-50); }
+
+/* Отменённый урок в списке — приглушён, чтобы не спорить с живыми */
+.lesson-row--cancelled { opacity: .72; }
+.lesson-row__reason {
+  margin-top: 6px;
+  font: 400 13px/1.45 var(--font-body);
+  color: var(--coral-600);
+}

@@ -67,12 +67,14 @@ class LessonListSerializer(serializers.ModelSerializer):
     homework_count = serializers.SerializerMethodField()
     # status — свойство модели, считается из времени; ModelSerializer сам его не подхватит
     status = serializers.CharField(read_only=True)
+    cancelled_by_name = serializers.CharField(source='cancelled_by.display_name', read_only=True, default='')
 
     class Meta:
         model = Lesson
         fields = [
             'id', 'title', 'scheduled_at', 'duration', 'status', 'comment',
             'students', 'homework_count', 'created_at',
+            'cancelled_at', 'cancel_reason', 'cancelled_by_name',
         ]
 
     def get_homework_count(self, obj):
@@ -145,4 +147,7 @@ class LessonShareSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Lesson
-        fields = ['id', 'title', 'scheduled_at', 'duration', 'status', 'comment', 'teacher_name']
+        fields = [
+            'id', 'title', 'scheduled_at', 'duration', 'status', 'comment', 'teacher_name',
+            'cancelled_at', 'cancel_reason',
+        ]

@@ -1,5 +1,5 @@
 export type Role = 'student' | 'teacher'
-export type LessonStatus = 'scheduled' | 'active' | 'finished'
+export type LessonStatus = 'scheduled' | 'active' | 'finished' | 'cancelled'
 
 export interface UserPublic {
   id: string
@@ -63,6 +63,10 @@ export interface Lesson {
   students: UserPublic[]
   homeworkCount: number
   createdAt: string
+  /** Отмена: время, причина и кто отменил. null — урок не отменяли */
+  cancelledAt: string | null
+  cancelReason: string
+  cancelledByName: string
 }
 
 export interface LessonDetail extends Lesson {
@@ -93,6 +97,8 @@ export interface LessonShare {
   status: LessonStatus
   comment: string
   teacherName: string
+  cancelledAt: string | null
+  cancelReason: string
 }
 
 export interface GuestSession {

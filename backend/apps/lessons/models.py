@@ -14,6 +14,7 @@ class Lesson(models.Model):
     STATUS_SCHEDULED = 'scheduled'
     STATUS_ACTIVE = 'active'
     STATUS_FINISHED = 'finished'
+    STATUS_CANCELLED = 'cancelled'
 
     # Длительность необязательна: если её не задали, считаем урок часовым.
     # Нужно только чтобы понять, когда он закончился (см. ends_at).
@@ -53,6 +54,19 @@ class Lesson(models.Model):
             'Заполните, чтобы задать свой срок для этого урока.'
         ),
     )
+    # Отмена. Отменить может и преподаватель, и ученик — но обязательно
+    # с причиной: второй стороне важно понимать, что случилось.
+    cancelled_at = models.DateTimeField(null=True, blank=True, verbose_name='Отменён')
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='cancelled_lessons',
+        verbose_name='Кто отменил',
+    )
+    cancel_reason = models.TextField(blank=True, verbose_name='Причина отмены')
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -80,7 +94,10 @@ class Lesson(models.Model):
         навсегда оставался «идёт».
 
         Урок без даты — всегда «запланирован»: его ещё предстоит назначить.
+        Отмена перебивает время: отменённый урок не «идёт» и не «завершается».
         """
+        if self.cancelled_at:
+            return self.STATUS_CANCELLED
         if not self.scheduled_at:
             return self.STATUS_SCHEDULED
         now = timezone.now()
