@@ -40,7 +40,10 @@
      их используют инлайновые стили по всему интерфейсу */
   --color-primary: var(--sky-500);
   --color-primary-dark: var(--sky-600);
-  --color-bg: var(--ink-50);
+  /* В дизайн-системе страница белая, а серый — только для подложек и
+     выделенных блоков. Разделяют не фоном, а рамками: см. .card */
+  --color-bg: var(--ink-0);
+  --color-bg-alt: var(--ink-50);
   --color-surface: var(--ink-0);
   --color-border: var(--ink-200);
   --color-text: var(--ink-900);
