@@ -102,9 +102,6 @@ const SHAPE_TOOLS = [
 
 type ShapeType = (typeof SHAPE_TOOLS)[number]['type']
 
-/** Подписи кнопок отмены и повтора в тулбаре — на них тоже надо реагировать */
-const UNDO_BUTTON_LABELS = ['undo', 'redo', 'отменить', 'вернуть', 'повторить']
-
 /**
  * Цвет курсора по clientID. Шаг золотого сечения по кругу оттенков —
  * у двух подряд подключившихся заведомо разные цвета.
@@ -544,11 +541,13 @@ export function WhiteboardRoom({ roomId, accessToken, username, onParticipantsCh
       }
     }
 
-    // Те же отмена и повтор, но кнопками в тулбаре
+    /**
+     * Те же отмена и повтор, но кнопками. Ищем по контейнеру, а не по подписи:
+     * подпись переводится вместе с локалью — на русской это «Шаг назад», и
+     * защита молча переставала работать, а Ctrl+Z при этом продолжал её включать.
+     */
     const onPointerDown = (event: PointerEvent) => {
-      const button = (event.target as HTMLElement | null)?.closest?.('[aria-label]')
-      const label = button?.getAttribute('aria-label')?.toLowerCase()
-      if (label && UNDO_BUTTON_LABELS.includes(label)) {
+      if ((event.target as HTMLElement | null)?.closest?.('.undo-redo-buttons')) {
         undoAtRef.current = Date.now()
       }
     }
