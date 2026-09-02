@@ -9,9 +9,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        libpq-dev gcc \
-    && rm -rf /var/lib/apt/lists/*
+# Компилятор и libpq-dev не нужны: psycopg2-binary и Pillow ставятся
+# готовыми wheel-ами. Сборка apt-слоя занимала больше времени, чем всё остальное.
 
 RUN pip install --no-cache-dir "poetry==${POETRY_VERSION}"
 

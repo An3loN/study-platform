@@ -9,9 +9,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        libpq-dev gcc \
-    && rm -rf /var/lib/apt/lists/*
+# Компилятор и libpq-dev не нужны: psycopg2-binary и Pillow ставятся
+# готовыми wheel-ами.
 
 RUN pip install --no-cache-dir "poetry==${POETRY_VERSION}"
 
@@ -22,7 +21,9 @@ RUN poetry install --only=main --no-root --no-cache
 
 COPY . .
 
-RUN python manage.py collectstatic --noinput --settings=config.settings.prod
+# collectstatic здесь запускать нельзя: prod-настройки требуют SECRET_KEY и
+# прочие переменные, а .env в build-контекст не попадает (см. .dockerignore).
+# Статика собирается в entrypoint.sh, когда переменные уже есть.
 
 EXPOSE 8000
 ENTRYPOINT ["sh", "entrypoint.sh"]

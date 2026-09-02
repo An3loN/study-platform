@@ -2,7 +2,7 @@ FROM node:20-alpine
 
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 
 # Копируем конфиги (vite.config.ts, tsconfig.json, index.html).
 # node_modules исключён через .dockerignore.
