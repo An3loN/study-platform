@@ -98,3 +98,11 @@ input:focus, textarea:focus, select:focus {
 }
 .form-group label { font-weight: 500; font-size: 13px; }
 .error-text { color: var(--color-danger); font-size: 13px; }
+
+/* ── Доска ────────────────────────────────────────────────────────────────── */
+/* У карандаша толщину задаёт слайдер, встроенный в ту же секцию (см.
+   WhiteboardRoom), поэтому штатный выбор из трёх значений прячем именно там —
+   и только там: у фигур он остаётся единственным способом задать толщину. */
+.wb-stroke-slider .excalidraw fieldset:has([data-testid^='strokeWidth-']) .buttonList {
+  display: none;
+}

@@ -162,6 +162,7 @@ export function LessonPage() {
           <WhiteboardRoom
             roomId={lesson.roomId}
             accessToken={accessToken}
+            username={user?.displayName}
             readonly={lesson.status === 'finished'}
           />
         </div>
