@@ -18,6 +18,7 @@ export function InvitePage() {
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [loadError, setLoadError] = useState('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -31,7 +32,12 @@ export function InvitePage() {
         setAlias(data.alias)
         setPhone(data.phone ?? '')
       })
-      .catch(() => setInvite(null))
+      .catch((err) => {
+        // Истёкшее приглашение отвечает 410 с пояснением — показываем именно
+        // его, иначе человек решит, что ошибся адресом
+        setLoadError((err as { response?: { data?: { detail?: string } } }).response?.data?.detail || '')
+        setInvite(null)
+      })
       .finally(() => setLoading(false))
   }, [token])
 
@@ -60,7 +66,7 @@ export function InvitePage() {
   if (!invite) {
     return (
       <CenteredCard>
-        <p>Ссылка недействительна. Попросите преподавателя прислать новую.</p>
+        <p>{loadError || 'Ссылка недействительна. Попросите преподавателя прислать новую.'}</p>
       </CenteredCard>
     )
   }

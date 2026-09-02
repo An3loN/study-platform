@@ -21,13 +21,19 @@ export function GuestLessonPage() {
   const [name, setName] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [loadError, setLoadError] = useState('')
   const [joining, setJoining] = useState(false)
 
   useEffect(() => {
     if (!shareToken) return
     lessonsApi.shareInfo(shareToken)
       .then(({ data }) => setLesson(data))
-      .catch(() => setLesson(null))
+      .catch((err) => {
+        // Истёкшая ссылка отвечает 410 с пояснением — показываем именно его,
+        // иначе человек решит, что ошибся адресом
+        setLoadError((err as { response?: { data?: { detail?: string } } }).response?.data?.detail || '')
+        setLesson(null)
+      })
       .finally(() => setLoading(false))
   }, [shareToken])
 
@@ -61,7 +67,7 @@ export function GuestLessonPage() {
   if (!lesson) {
     return (
       <Centered>
-        <p style={{ marginBottom: 12 }}>Ссылка недействительна или урок удалён.</p>
+        <p style={{ marginBottom: 12 }}>{loadError || 'Ссылка недействительна или урок удалён.'}</p>
         <Link to="/login">Войти в аккаунт</Link>
       </Centered>
     )

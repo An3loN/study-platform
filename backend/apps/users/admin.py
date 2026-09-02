@@ -18,5 +18,5 @@ class CustomUserAdmin(UserAdmin):
 
 @admin.register(StudentInvite)
 class StudentInviteAdmin(admin.ModelAdmin):
-    list_display = ['student', 'token', 'created_at', 'accepted_at']
+    list_display = ['student', 'token', 'created_at', 'accepted_at', 'expires_at']
     readonly_fields = ['token', 'created_at']

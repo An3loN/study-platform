@@ -9,7 +9,7 @@ class HomeworkInline(admin.TabularInline):
 
 @admin.register(Lesson)
 class LessonAdmin(admin.ModelAdmin):
-    list_display = ['__str__', 'teacher', 'scheduled_at', 'duration', 'status']
+    list_display = ['__str__', 'teacher', 'scheduled_at', 'duration', 'status', 'share_valid_until']
     list_filter = ['teacher']
     search_fields = ['title', 'teacher__username', 'students__username']
     filter_horizontal = ['students']

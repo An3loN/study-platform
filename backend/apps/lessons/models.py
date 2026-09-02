@@ -44,6 +44,15 @@ class Lesson(models.Model):
     room_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     # Токен для входа на урок по ссылке, в том числе без аккаунта
     share_token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    share_expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Ссылка действует до',
+        help_text=(
+            'Пусто — считается от конца урока по настройкам платформы. '
+            'Заполните, чтобы задать свой срок для этого урока.'
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -80,6 +89,30 @@ class Lesson(models.Model):
         if now < self.ends_at:
             return self.STATUS_ACTIVE
         return self.STATUS_FINISHED
+
+    @property
+    def share_valid_until(self):
+        """
+        До какого момента работает ссылка на вход. None — бессрочно.
+
+        Срок считается от конца урока, а не от создания ссылки: иначе ссылка
+        на урок через неделю протухла бы задолго до самого урока. Поэтому и не
+        сохраняется в поле — перенос урока должен двигать её вместе с собой.
+        Явно заданный share_expires_at перекрывает расчёт.
+        """
+        if self.share_expires_at:
+            return self.share_expires_at
+
+        from apps.common.models import SiteSettings
+        days = SiteSettings.get().share_ttl_days
+        if not days:
+            return None
+        return (self.ends_at or self.created_at) + timedelta(days=days)
+
+    @property
+    def share_is_expired(self):
+        valid_until = self.share_valid_until
+        return valid_until is not None and timezone.now() >= valid_until
 
     def is_participant(self, user):
         if not user or not user.is_authenticated:

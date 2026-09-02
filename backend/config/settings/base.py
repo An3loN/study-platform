@@ -19,6 +19,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     # Local
+    'apps.common',
     'apps.users',
     'apps.courses',
     'apps.lessons',

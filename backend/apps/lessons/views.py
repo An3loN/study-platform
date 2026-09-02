@@ -4,7 +4,7 @@ from django.db.models import DateTimeField, DurationField, ExpressionWrapper, F,
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework import generics, permissions, status
+from rest_framework import exceptions, generics, permissions, status
 from rest_framework.parsers import FormParser, MultiPartParser, JSONParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -144,12 +144,27 @@ class LessonDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 # ── Вход по ссылке ───────────────────────────────────────────────────────────
 
+class ShareLinkExpired(exceptions.APIException):
+    """410, а не 404: человек попал по верному адресу, просто поздно."""
+    status_code = status.HTTP_410_GONE
+    default_detail = 'Срок действия ссылки истёк. Попросите преподавателя прислать новую.'
+    default_code = 'share_link_expired'
+
+
+def get_live_lesson(share_token):
+    """Урок по токену ссылки, если ссылка ещё действует."""
+    lesson = get_object_or_404(Lesson, share_token=share_token)
+    if lesson.share_is_expired:
+        raise ShareLinkExpired()
+    return lesson
+
+
 class LessonShareInfoView(APIView):
     """Публично: карточка урока по токену ссылки."""
     permission_classes = [permissions.AllowAny]
 
     def get(self, request, share_token):
-        lesson = get_object_or_404(Lesson, share_token=share_token)
+        lesson = get_live_lesson(share_token)
         return Response(LessonShareSerializer(lesson).data)
 
 
@@ -158,7 +173,7 @@ class LessonGuestJoinView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request, share_token):
-        lesson = get_object_or_404(Lesson, share_token=share_token)
+        lesson = get_live_lesson(share_token)
         name = str(request.data.get('name', '')).strip()
         if not name:
             return Response({'detail': 'Представьтесь, пожалуйста.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -179,7 +194,7 @@ class LessonShareQrView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request, share_token):
-        lesson = get_object_or_404(Lesson, share_token=share_token)
+        lesson = get_live_lesson(share_token)
         return qr_svg_response(request.build_absolute_uri(lesson.share_path()))
 
 
