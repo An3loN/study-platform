@@ -13,6 +13,8 @@ INSTALLED_APPS += ['debug_toolbar']
 
 MIDDLEWARE += ['debug_toolbar.middleware.DebugToolbarMiddleware']
 
-INTERNAL_IPS = ['127.0.0.1']
+# Запросы приходят из docker-сети через nginx, поэтому проверка по INTERNAL_IPS
+# не срабатывала никогда и панель не показывалась. В dev-контуре показываем всегда.
+DEBUG_TOOLBAR_CONFIG = {'SHOW_TOOLBAR_CALLBACK': lambda request: True}
 
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
