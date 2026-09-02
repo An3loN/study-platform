@@ -111,9 +111,11 @@ class YjsStateView(APIView):
         try:
             lesson = Lesson.objects.get(room_id=room_id)
             yjs = WhiteboardYjsState.objects.get(lesson=lesson)
-            return Response({'state': yjs.state})
         except (Lesson.DoesNotExist, WhiteboardYjsState.DoesNotExist):
-            return Response({'state': None})
+            # 404 — договорённость с Hocuspocus: «комната новая, состояния нет»
+            # (см. loadYjsState в hocuspocus/src/api.ts).
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        return Response({'state': yjs.state})
 
     def put(self, request, room_id):
         state = request.data.get('state', '')

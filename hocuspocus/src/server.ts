@@ -51,8 +51,12 @@ const server = Server.configure({
   async onStoreDocument({ documentName, document }: onStoreDocumentPayload): Promise<void> {
     const update = Y.encodeStateAsUpdate(document)
     const base64State = Buffer.from(update).toString('base64')
-    await saveYjsState(documentName, base64State)
-    console.log(`[persistence] Состояние сохранено для комнаты ${documentName}`)
+    const saved = await saveYjsState(documentName, base64State)
+    if (saved) {
+      console.log(`[persistence] Состояние сохранено для комнаты ${documentName}`)
+    } else {
+      console.error(`[persistence] СОСТОЯНИЕ ПОТЕРЯНО для комнаты ${documentName}`)
+    }
   },
 
   extensions: [
