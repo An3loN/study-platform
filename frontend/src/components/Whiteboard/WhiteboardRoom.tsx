@@ -11,6 +11,7 @@ import type {
   CollaboratorPointer,
 } from '@excalidraw/excalidraw/types/types'
 import type { ExcalidrawElement } from '@excalidraw/excalidraw/types/element/types'
+import { TOOLBAR_ICON_BY_TESTID, iconMarkup } from './toolIcons'
 
 interface Props {
   roomId: string
@@ -91,6 +92,15 @@ const TOOL_HINTS: Record<string, { label: string; key?: string }> = {
  * и короткое окно истекало бы раньше, чем изменения дойдут до отправки.
  */
 const UNDO_GUARD_MS = 5_000
+
+/** Фигуры, собранные под одной кнопкой панели */
+const SHAPE_TOOLS = [
+  { type: 'rectangle', icon: 'rectangle', label: 'Прямоугольник', key: 'R' },
+  { type: 'diamond', icon: 'diamond', label: 'Ромб', key: 'D' },
+  { type: 'ellipse', icon: 'ellipse', label: 'Овал', key: 'O' },
+] as const
+
+type ShapeType = (typeof SHAPE_TOOLS)[number]['type']
 
 /** Подписи кнопок отмены и повтора в тулбаре — на них тоже надо реагировать */
 const UNDO_BUTTON_LABELS = ['undo', 'redo', 'отменить', 'вернуть', 'повторить']
@@ -178,6 +188,26 @@ export function WhiteboardRoom({ roomId, accessToken, username, onParticipantsCh
    * выносится наружу отдельной кнопкой.
    */
   const [toolbarSlot, setToolbarSlot] = useState<HTMLElement | null>(null)
+
+  // Выпадающий список фигур и последняя выбранная — её иконка стоит на кнопке
+  const [shapesOpen, setShapesOpen] = useState(false)
+  const [shapeType, setShapeType] = useState<ShapeType>('rectangle')
+  const activeShape = SHAPE_TOOLS.find((shape) => shape.type === shapeType) ?? SHAPE_TOOLS[0]
+
+  // Список закрывается кликом мимо — как любое меню
+  useEffect(() => {
+    if (!shapesOpen) return
+    const close = (event: MouseEvent) => {
+      if (!(event.target as HTMLElement | null)?.closest('.wb-tool-shapes')) setShapesOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [shapesOpen])
+
+  // Фигуру могли выбрать и с клавиатуры — кнопка должна показать её же
+  useEffect(() => {
+    if (SHAPE_TOOLS.some((shape) => shape.type === activeTool)) setShapeType(activeTool as ShapeType)
+  }, [activeTool])
 
   /**
    * Yjs -> Excalidraw.
@@ -544,7 +574,18 @@ export function WhiteboardRoom({ roomId, accessToken, username, onParticipantsCh
      * проставляем их из того же наблюдателя. Пишем только при отличии —
      * иначе собственная правка снова разбудит наблюдателя.
      */
-    const applyToolHints = () => {
+    /**
+     * Меняем иконку внутри кнопки Excalidraw на макетную. Метка ставится на сам
+     * svg, а не на кнопку: если React перерисует содержимое своей иконкой,
+     * метка пропадёт вместе с ней и мы нарисуем заново.
+     */
+    const paintIcon = (host: Element | null | undefined, name: string, size = 20) => {
+      const svg = host?.querySelector('svg')
+      if (!svg || svg.getAttribute('data-wb-icon') === name) return
+      svg.outerHTML = iconMarkup(name, size)
+    }
+
+    const applyToolbarSkin = () => {
       Object.entries(TOOL_HINTS).forEach(([testid, hint]) => {
         const label = root.querySelector(`[data-testid="${testid}"]`)?.closest('label')
         if (!label) return
@@ -556,6 +597,17 @@ export function WhiteboardRoom({ roomId, accessToken, username, onParticipantsCh
         const text = hint.key ?? ''
         if (badge && badge.textContent !== text) badge.textContent = text
       })
+
+      Object.entries(TOOLBAR_ICON_BY_TESTID).forEach(([testid, icon]) => {
+        paintIcon(root.querySelector(`[data-testid="${testid}"]`)?.closest('label'), icon)
+      })
+
+      // Отмена, повтор и масштаб — те же иконки из макета, размером поменьше.
+      // Ищем от документа: нижнюю панель Excalidraw рендерит мимо нашей обёртки.
+      paintIcon(document.querySelector('button[aria-label="Undo"]'), 'undo', 18)
+      paintIcon(document.querySelector('button[aria-label="Redo"]'), 'redo', 18)
+      paintIcon(document.querySelector('.zoom-out-button'), 'zoomOut', 18)
+      paintIcon(document.querySelector('.zoom-in-button'), 'zoomIn', 18)
     }
 
     const findSlot = () => {
@@ -566,7 +618,7 @@ export function WhiteboardRoom({ roomId, accessToken, username, onParticipantsCh
       const stack = (root.querySelector('.App-toolbar .Stack_horizontal') as HTMLElement | null) ?? null
       setToolbarSlot((prev) => (prev === stack ? prev : stack))
 
-      applyToolHints()
+      applyToolbarSkin()
     }
 
     findSlot()
@@ -717,24 +769,90 @@ export function WhiteboardRoom({ roomId, accessToken, username, onParticipantsCh
         * Разметка и классы взяты у родных кнопок, чтобы не выбиваться из ряда.
         */}
       {toolbarSlot && createPortal(
-        <label className="ToolIcon Shape" title="Указка — K">
-          <input
-            className="ToolIcon_type_radio ToolIcon_size_medium"
-            type="radio"
-            name="editor-current-shape"
-            aria-label="Указка"
-            checked={activeTool === 'laser'}
-            onChange={() => apiRef.current?.setActiveTool({ type: 'laser' })}
-          />
-          <div className="ToolIcon__icon">
-            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20 4 12.5 11.5" />
-              <path d="M9.5 14.5 4 20" />
-              <circle cx="11" cy="13" r="2.5" />
-            </svg>
-            <span className="ToolIcon__keybinding">K</span>
+        <>
+          {/**
+            * «Рука» у Excalidraw лежит в отдельном контейнере рядом с панелью,
+            * а по макету она первая в общем ряду. Свою кнопку поставить проще,
+            * чем переносить чужую: родная прячется, инструмент тот же.
+            */}
+          <label className="ToolIcon Shape wb-tool-hand" title="Рука — H">
+            <input
+              className="ToolIcon_type_radio ToolIcon_size_medium"
+              type="radio"
+              name="editor-current-shape"
+              aria-label="Рука"
+              checked={activeTool === 'hand'}
+              onChange={() => apiRef.current?.setActiveTool({ type: 'hand' })}
+            />
+            <div
+              className="ToolIcon__icon"
+              dangerouslySetInnerHTML={{ __html: `${iconMarkup('hand')}<span class="ToolIcon__keybinding">H</span>` }}
+            />
+          </label>
+
+          <span className="wb-tool-divider wb-tool-divider--1" />
+
+          {/**
+            * Фигуры собраны в одну кнопку с выпадающим списком: три отдельные
+            * занимали треть панели, а нужны они реже пера и ластика. На кнопке
+            * — иконка выбранной фигуры, чтобы повтор не требовал открывать список.
+            */}
+          <div className="wb-tool-shapes">
+            <button
+              className={`wb-tool-button${SHAPE_TOOLS.some((s) => s.type === activeTool) ? ' is-active' : ''}`}
+              title="Фигуры"
+              aria-haspopup="menu"
+              aria-expanded={shapesOpen}
+              onClick={() => setShapesOpen((open) => !open)}
+            >
+              <span
+                className="wb-tool-button__icon"
+                dangerouslySetInnerHTML={{ __html: iconMarkup(activeShape.icon) }}
+              />
+            </button>
+
+            {shapesOpen && (
+              <div className="wb-shapes-menu" role="menu">
+                {SHAPE_TOOLS.map((shape) => (
+                  <button
+                    key={shape.type}
+                    role="menuitem"
+                    className={`wb-shapes-menu__item${activeTool === shape.type ? ' is-active' : ''}`}
+                    onClick={() => {
+                      setShapeType(shape.type)
+                      setShapesOpen(false)
+                      apiRef.current?.setActiveTool({ type: shape.type })
+                    }}
+                  >
+                    <span
+                      className="wb-tool-button__icon"
+                      dangerouslySetInnerHTML={{ __html: iconMarkup(shape.icon, 18) }}
+                    />
+                    {shape.label}
+                    <span className="wb-shapes-menu__key">{shape.key}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-        </label>,
+
+          <span className="wb-tool-divider wb-tool-divider--2" />
+
+          <label className="ToolIcon Shape wb-tool-laser" title="Указка — K">
+            <input
+              className="ToolIcon_type_radio ToolIcon_size_medium"
+              type="radio"
+              name="editor-current-shape"
+              aria-label="Указка"
+              checked={activeTool === 'laser'}
+              onChange={() => apiRef.current?.setActiveTool({ type: 'laser' })}
+            />
+            <div
+              className="ToolIcon__icon"
+              dangerouslySetInnerHTML={{ __html: `${iconMarkup('laser')}<span class="ToolIcon__keybinding">K</span>` }}
+            />
+          </label>
+        </>,
         toolbarSlot,
       )}
 

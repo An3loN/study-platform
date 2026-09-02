@@ -242,6 +242,8 @@ input:focus, textarea:focus, select:focus {
    открывают на минуту. Отсюда стекло, скругление и отступ от краёв. */
 .side-panel {
   position: absolute;
+  /* Слой интерфейса Excalidraw идёт с z-index 4 — панель должна быть над ним */
+  z-index: 10;
   top: 16px;
   right: 16px;
   bottom: 16px;
@@ -291,6 +293,7 @@ input:focus, textarea:focus, select:focus {
 /* Свёрнутая панель — узкие вертикальные корешки у правого края */
 .side-rail {
   position: absolute;
+  z-index: 10;
   top: 16px;
   right: 16px;
   display: flex;
@@ -391,6 +394,7 @@ input:focus, textarea:focus, select:focus {
   gap: 16px;
 }
 .wb-board .excalidraw .App-menu__left legend,
+.wb-board .excalidraw .App-menu__left h3,
 .wb-board .excalidraw .App-menu__left .control-label {
   font: 600 11px/1 var(--font-ui);
   letter-spacing: .08em;
@@ -405,4 +409,104 @@ input:focus, textarea:focus, select:focus {
   font: 500 14px/1 var(--font-mono);
   color: var(--ink-700);
   font-variant-numeric: tabular-nums;
+}
+
+/* Порядок и состав панели инструментов — по макету:
+   рука, выделение │ ручка, ластик, прямая, стрелка, фигуры, текст, изображение │ указка.
+   Excalidraw выкладывает кнопки своим порядком, поэтому переставляем их
+   флексом: переписывать его разметку ради этого не стоит. */
+.wb-board .excalidraw .App-toolbar .Stack_horizontal { align-items: center; }
+.wb-board .excalidraw .App-toolbar .Stack_horizontal > * { order: 50; }
+.wb-board .excalidraw .App-toolbar .wb-tool-hand                                { order: 1; }
+.wb-board .excalidraw .App-toolbar label:has([data-testid='toolbar-selection']) { order: 2; }
+.wb-board .excalidraw .App-toolbar .wb-tool-divider--1                          { order: 3; }
+.wb-board .excalidraw .App-toolbar label:has([data-testid='toolbar-freedraw'])  { order: 4; }
+.wb-board .excalidraw .App-toolbar label:has([data-testid='toolbar-eraser'])    { order: 5; }
+.wb-board .excalidraw .App-toolbar label:has([data-testid='toolbar-line'])      { order: 6; }
+.wb-board .excalidraw .App-toolbar label:has([data-testid='toolbar-arrow'])     { order: 7; }
+.wb-board .excalidraw .App-toolbar .wb-tool-shapes                              { order: 8; }
+.wb-board .excalidraw .App-toolbar label:has([data-testid='toolbar-text'])      { order: 9; }
+.wb-board .excalidraw .App-toolbar label:has([data-testid='toolbar-image'])     { order: 10; }
+.wb-board .excalidraw .App-toolbar .wb-tool-divider--2                          { order: 11; }
+.wb-board .excalidraw .App-toolbar .wb-tool-laser                               { order: 12; }
+
+/* Три фигуры собраны под одной кнопкой, а «не сбрасывать инструмент» в макете
+   панели нет — обе группы прячем, но сами инструменты остаются доступны */
+.wb-board .excalidraw .App-toolbar label:has([data-testid='toolbar-rectangle']),
+.wb-board .excalidraw .App-toolbar label:has([data-testid='toolbar-diamond']),
+.wb-board .excalidraw .App-toolbar label:has([data-testid='toolbar-ellipse']),
+.wb-board .excalidraw .App-toolbar label:has([data-testid='toolbar-lock']) {
+  display: none;
+}
+
+.wb-board .excalidraw .wb-tool-divider {
+  width: 1px;
+  height: 26px;
+  margin: 0 6px;
+  background: var(--ink-200);
+  flex: none;
+}
+
+/* Кнопка «Фигуры» повторяет вид родных кнопок панели */
+.wb-board .excalidraw .wb-tool-shapes { position: relative; display: flex; }
+.wb-board .excalidraw .wb-tool-button {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: var(--radius-control);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--ink-600);
+}
+.wb-board .excalidraw .wb-tool-button:hover { background: var(--ink-50); }
+.wb-board .excalidraw .wb-tool-button.is-active {
+  background: var(--sky-50);
+  color: var(--sky-700);
+  box-shadow: inset 0 0 0 1px var(--sky-300);
+}
+.wb-board .excalidraw .wb-tool-button__icon { display: flex; }
+
+.wb-board .excalidraw .wb-shapes-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 196px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--ink-0);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lg);
+  z-index: 10;
+}
+.wb-board .excalidraw .wb-shapes-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--ink-700);
+  font: 500 14px/1 var(--font-ui);
+}
+.wb-board .excalidraw .wb-shapes-menu__item:hover { background: var(--ink-50); }
+.wb-board .excalidraw .wb-shapes-menu__item.is-active { background: var(--sky-50); color: var(--sky-700); }
+.wb-board .excalidraw .wb-shapes-menu__key {
+  margin-left: auto;
+  font: 500 12px/1 var(--font-mono);
+  color: var(--ink-400);
+}
+
+/* Родные «рука» и «не сбрасывать инструмент» живут в отдельном контейнере
+   рядом с панелью — в макете его нет, а рука вынесена в общий ряд своей кнопкой.
+   Свой разделитель у Excalidraw тоже лишний: разделители расставлены по макету. */
+.wb-board .excalidraw .mobile-misc-tools-container,
+.wb-board .excalidraw .App-toolbar__divider {
+  display: none;
 }
