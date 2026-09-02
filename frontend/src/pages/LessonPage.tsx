@@ -119,6 +119,9 @@ export function LessonPage() {
         </div>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12, flex: 'none' }}>
+          {!lesson.hasWhiteboard && (
+            <span className="lesson-header__teacher">Очный урок</span>
+          )}
           <Avatars names={participants} self={user?.displayName} teacher={lesson.teacher.displayName} />
           {participants.length > 0 && <div className="lesson-header__divider" />}
 
@@ -143,6 +146,7 @@ export function LessonPage() {
                 </svg>
                 Изменить урок
               </button>
+              {lesson.hasWhiteboard && (
               <button className="header-button header-button--accent" onClick={() => setShareModal(true)}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
@@ -150,21 +154,51 @@ export function LessonPage() {
                 </svg>
                 Гостевая ссылка
               </button>
+              )}
             </>
           )}
         </div>
       </header>
 
-      {/* Доска на всю площадь, панель — поверх неё */}
-      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        <WhiteboardRoom
-          roomId={lesson.roomId}
-          accessToken={accessToken}
-          username={user?.displayName}
-          onParticipantsChange={setParticipants}
-        />
-        <LessonSidebar tabs={tabs} />
-      </div>
+      {lesson.hasWhiteboard ? (
+        /* Доска на всю площадь, панель — поверх неё */
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+          <WhiteboardRoom
+            roomId={lesson.roomId}
+            accessToken={accessToken}
+            username={user?.displayName}
+            onParticipantsChange={setParticipants}
+          />
+          <LessonSidebar tabs={tabs} />
+        </div>
+      ) : (
+        /**
+         * Очный урок: доски нет, и прятать панели за корешками незачем —
+         * кроме них на странице ничего и нет. Показываем их сразу, колонкой.
+         */
+        <div style={{ flex: 1, overflowY: 'auto', background: 'var(--color-bg-alt)' }}>
+          <div style={{
+            maxWidth: 960,
+            margin: '0 auto',
+            padding: 24,
+            display: 'grid',
+            gridTemplateColumns: tabs.length > 1 ? '1fr 1fr' : '1fr',
+            gap: 16,
+            alignItems: 'start',
+          }}>
+            {tabs.map((tab) => (
+              <section key={tab.key} className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                <div className="side-panel__head" style={{ borderRadius: 0 }}>
+                  {tab.icon}
+                  <span>{tab.label}</span>
+                  {!!tab.badge && <span className="side-panel__count">{tab.badge}</span>}
+                </div>
+                <div style={{ height: 420 }}>{tab.render()}</div>
+              </section>
+            ))}
+          </div>
+        </div>
+      )}
 
       {commentModal && (
         <Modal title="Комментарий к уроку" onClose={() => setCommentModal(false)}>

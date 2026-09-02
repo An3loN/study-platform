@@ -183,8 +183,11 @@ class ShareLinkExpired(exceptions.APIException):
 
 
 def get_live_lesson(share_token):
-    """Урок по токену ссылки, если ссылка ещё действует."""
+    """Урок по токену ссылки, если по ней ещё есть куда входить."""
     lesson = get_object_or_404(Lesson, share_token=share_token)
+    # У очного урока доски нет, а ссылка ведёт именно на неё
+    if not lesson.has_whiteboard:
+        raise exceptions.NotFound('Это очный урок — входить по ссылке некуда.')
     if lesson.share_is_expired:
         raise ShareLinkExpired()
     return lesson

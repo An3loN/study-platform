@@ -137,6 +137,7 @@ export function TeacherDashboard() {
                   </div>
                   <p style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
                     {formatDateTime(lesson.scheduledAt)} · {formatDuration(lesson.duration)}
+                    {!lesson.hasWhiteboard && ' · очный'}
                     {lesson.students.length > 0 && ' · '}
                     {lesson.students.map((s) => s.displayName).join(', ')}
                   </p>

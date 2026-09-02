@@ -42,6 +42,15 @@ class Lesson(models.Model):
     # Быстрые заметки преподавателя: что прошли, на что обратить внимание. Ученику не видны.
     notes = models.TextField(blank=True, verbose_name='Заметки преподавателя')
 
+    # Очное занятие проходит за одним столом: доска там не нужна, а заметки и
+    # домашние задания нужны. Вместе с доской у такого урока нет и смысла
+    # во входе по ссылке — заходить некуда.
+    has_whiteboard = models.BooleanField(
+        default=True,
+        verbose_name='Совместная доска',
+        help_text='Выключите для очного занятия: останутся заметки и домашние задания.',
+    )
+
     room_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     # Токен для входа на урок по ссылке, в том числе без аккаунта
     share_token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)

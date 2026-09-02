@@ -67,6 +67,8 @@ export interface Lesson {
   cancelledAt: string | null
   cancelReason: string
   cancelledByName: string
+  /** Очный урок — без доски и без ссылки для входа */
+  hasWhiteboard: boolean
 }
 
 export interface LessonDetail extends Lesson {
@@ -86,6 +88,7 @@ export interface LessonInput {
   comment?: string
   notes?: string
   students?: string[]
+  hasWhiteboard?: boolean
 }
 
 /** Публичная карточка урока для входящего по ссылке */

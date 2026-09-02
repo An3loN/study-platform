@@ -53,6 +53,7 @@ export function StudentDashboard() {
                   </div>
                   <p style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
                     {formatDateTime(lesson.scheduledAt)} · {formatDuration(lesson.duration)}
+                    {!lesson.hasWhiteboard && ' · очный'}
                   </p>
                   {lesson.comment && (
                     <p style={{ fontSize: 13, marginTop: 6, whiteSpace: 'pre-wrap' }}>{lesson.comment}</p>

@@ -73,7 +73,7 @@ class LessonListSerializer(serializers.ModelSerializer):
         model = Lesson
         fields = [
             'id', 'title', 'scheduled_at', 'duration', 'status', 'comment',
-            'students', 'homework_count', 'created_at',
+            'students', 'homework_count', 'created_at', 'has_whiteboard',
             'cancelled_at', 'cancel_reason', 'cancelled_by_name',
         ]
 
@@ -102,10 +102,13 @@ class LessonDetailSerializer(LessonListSerializer):
         return obj.notes if self._is_teacher(obj) else None
 
     def get_share_token(self, obj):
-        return str(obj.share_token) if self._is_teacher(obj) else None
+        # Без доски вход по ссылке некуда вести — не отдаём её вовсе
+        if not (self._is_teacher(obj) and obj.has_whiteboard):
+            return None
+        return str(obj.share_token)
 
     def get_share_url(self, obj):
-        if not self._is_teacher(obj):
+        if not (self._is_teacher(obj) and obj.has_whiteboard):
             return None
         request = self.context.get('request')
         return request.build_absolute_uri(obj.share_path()) if request else obj.share_path()
@@ -121,7 +124,7 @@ class LessonWriteSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Lesson
-        fields = ['title', 'scheduled_at', 'duration', 'comment', 'notes', 'students']
+        fields = ['title', 'scheduled_at', 'duration', 'comment', 'notes', 'students', 'has_whiteboard']
         extra_kwargs = {field: {'required': False} for field in fields}
 
     def __init__(self, *args, **kwargs):
