@@ -1,6 +1,7 @@
 from datetime import timedelta
 
-from django.db.models import Q
+from django.db.models import DateTimeField, DurationField, ExpressionWrapper, F, Q, Value
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, permissions, status
@@ -26,7 +27,7 @@ GUEST_TOKEN_LIFETIME = timedelta(hours=12)
 def issue_guest_token(lesson, name):
     """
     Гостевой токен: без пользователя, привязан к комнате урока.
-    Его принимают Hocuspocus (через validate-access) и чат.
+    Его принимает Hocuspocus через validate-access.
     """
     token = AccessToken()
     token.set_exp(lifetime=GUEST_TOKEN_LIFETIME)
@@ -34,6 +35,18 @@ def issue_guest_token(lesson, name):
     token['room_id'] = str(lesson.room_id)
     token['name'] = (name or 'Гость')[:60]
     return str(token)
+
+
+def lesson_ends_at():
+    """
+    Момент окончания урока выражением SQL: scheduled_at + длительность.
+    Нужен там, где по нему фильтруют, — свойство модели в запрос не подставить.
+    В annotate имя ends_at_db, а не ends_at: одноимённое свойство модели
+    доступно только на чтение, и Django падает, пытаясь его присвоить.
+    """
+    minutes = Coalesce(F('duration'), Value(Lesson.DEFAULT_DURATION_MINUTES))
+    delta = ExpressionWrapper(minutes * Value(timedelta(minutes=1)), output_field=DurationField())
+    return ExpressionWrapper(F('scheduled_at') + delta, output_field=DateTimeField())
 
 
 def lessons_for(user):
@@ -63,19 +76,19 @@ class LessonListCreateView(generics.ListCreateAPIView):
             queryset = queryset.filter(students__id=params['student'])
 
         now = timezone.now()
+        if params.get('upcoming') or params.get('past'):
+            # Статус вычисляется из времени, поэтому и фильтровать приходится по
+            # нему же: сортировать в Python нельзя — сломается пагинация.
+            queryset = queryset.annotate(ends_at_db=lesson_ends_at())
+
         if params.get('upcoming'):
             # Урок без даты считаем предстоящим: его ещё предстоит назначить.
-            # Идущий сейчас урок остаётся здесь, даже если время начала уже прошло.
-            queryset = queryset.exclude(status=Lesson.STATUS_FINISHED).filter(
-                Q(scheduled_at__isnull=True)
-                | Q(scheduled_at__gte=now)
-                | Q(status=Lesson.STATUS_ACTIVE),
+            # Идущий сейчас урок остаётся здесь, даже если время начала прошло.
+            queryset = queryset.filter(
+                Q(scheduled_at__isnull=True) | Q(ends_at_db__gte=now),
             ).order_by('scheduled_at')
         elif params.get('past'):
-            queryset = queryset.filter(
-                Q(status=Lesson.STATUS_FINISHED)
-                | Q(scheduled_at__lt=now, status=Lesson.STATUS_SCHEDULED),
-            ).order_by('-scheduled_at')
+            queryset = queryset.filter(ends_at_db__lt=now).order_by('-scheduled_at')
 
         return queryset
 
@@ -129,26 +142,6 @@ class LessonDetailView(generics.RetrieveUpdateDestroyAPIView):
         return Response(LessonDetailSerializer(lesson, context=self.get_serializer_context()).data)
 
 
-class LessonStatusView(APIView):
-    """Начать / завершить урок."""
-    permission_classes = [IsTeacher]
-    new_status = None
-
-    def post(self, request, pk):
-        lesson = get_object_or_404(Lesson, pk=pk, teacher=request.user)
-        lesson.status = self.new_status
-        lesson.save(update_fields=['status'])
-        return Response({'status': lesson.status})
-
-
-class LessonStartView(LessonStatusView):
-    new_status = Lesson.STATUS_ACTIVE
-
-
-class LessonFinishView(LessonStatusView):
-    new_status = Lesson.STATUS_FINISHED
-
-
 # ── Вход по ссылке ───────────────────────────────────────────────────────────
 
 class LessonShareInfoView(APIView):
@@ -161,7 +154,7 @@ class LessonShareInfoView(APIView):
 
 
 class LessonGuestJoinView(APIView):
-    """Публично: представился именем — получил гостевой доступ к доске и чату."""
+    """Публично: представился именем — получил гостевой доступ к доске."""
     permission_classes = [permissions.AllowAny]
 
     def post(self, request, share_token):
@@ -169,9 +162,10 @@ class LessonGuestJoinView(APIView):
         name = str(request.data.get('name', '')).strip()
         if not name:
             return Response({'detail': 'Представьтесь, пожалуйста.'}, status=status.HTTP_400_BAD_REQUEST)
-        if lesson.status == Lesson.STATUS_FINISHED:
-            return Response({'detail': 'Урок уже завершён.'}, status=status.HTTP_403_FORBIDDEN)
 
+        # Завершённый урок больше не закрывает вход: статус теперь вычисляется
+        # из времени, и урок, затянувшийся на десять минут, иначе выставлял бы
+        # опоздавшего за дверь. Доступом управляет срок жизни ссылки.
         return Response({
             'access': issue_guest_token(lesson, name),
             'name': name,

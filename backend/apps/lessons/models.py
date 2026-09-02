@@ -1,6 +1,9 @@
 import uuid
+from datetime import timedelta
+
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class Lesson(models.Model):
@@ -11,11 +14,10 @@ class Lesson(models.Model):
     STATUS_SCHEDULED = 'scheduled'
     STATUS_ACTIVE = 'active'
     STATUS_FINISHED = 'finished'
-    STATUS_CHOICES = [
-        (STATUS_SCHEDULED, 'Запланирован'),
-        (STATUS_ACTIVE, 'Идёт'),
-        (STATUS_FINISHED, 'Завершён'),
-    ]
+
+    # Длительность необязательна: если её не задали, считаем урок часовым.
+    # Нужно только чтобы понять, когда он закончился (см. ends_at).
+    DEFAULT_DURATION_MINUTES = 60
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     teacher = models.ForeignKey(
@@ -39,7 +41,6 @@ class Lesson(models.Model):
     # Быстрые заметки преподавателя: что прошли, на что обратить внимание. Ученику не видны.
     notes = models.TextField(blank=True, verbose_name='Заметки преподавателя')
 
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_SCHEDULED)
     room_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     # Токен для входа на урок по ссылке, в том числе без аккаунта
     share_token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
@@ -53,6 +54,32 @@ class Lesson(models.Model):
     def __str__(self):
         when = self.scheduled_at.strftime('%d.%m.%Y %H:%M') if self.scheduled_at else 'без даты'
         return self.title or f'Урок {when}'
+
+    @property
+    def ends_at(self):
+        """Когда урок заканчивается. None — время начала не назначено."""
+        if not self.scheduled_at:
+            return None
+        minutes = self.duration or self.DEFAULT_DURATION_MINUTES
+        return self.scheduled_at + timedelta(minutes=minutes)
+
+    @property
+    def status(self):
+        """
+        Статус считается из времени, а не хранится: раньше преподаватель
+        переключал его руками, и урок, у которого просто закрыли вкладку,
+        навсегда оставался «идёт».
+
+        Урок без даты — всегда «запланирован»: его ещё предстоит назначить.
+        """
+        if not self.scheduled_at:
+            return self.STATUS_SCHEDULED
+        now = timezone.now()
+        if now < self.scheduled_at:
+            return self.STATUS_SCHEDULED
+        if now < self.ends_at:
+            return self.STATUS_ACTIVE
+        return self.STATUS_FINISHED
 
     def is_participant(self, user):
         if not user or not user.is_authenticated:

@@ -82,7 +82,6 @@ export interface LessonInput {
   comment?: string
   notes?: string
   students?: string[]
-  status?: LessonStatus
 }
 
 /** Публичная карточка урока для входящего по ссылке */

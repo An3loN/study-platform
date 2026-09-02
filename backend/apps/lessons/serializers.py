@@ -65,6 +65,8 @@ class HomeworkSerializer(serializers.ModelSerializer):
 class LessonListSerializer(serializers.ModelSerializer):
     students = UserPublicSerializer(many=True, read_only=True)
     homework_count = serializers.SerializerMethodField()
+    # status — свойство модели, считается из времени; ModelSerializer сам его не подхватит
+    status = serializers.CharField(read_only=True)
 
     class Meta:
         model = Lesson
@@ -117,7 +119,7 @@ class LessonWriteSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Lesson
-        fields = ['title', 'scheduled_at', 'duration', 'comment', 'notes', 'students', 'status']
+        fields = ['title', 'scheduled_at', 'duration', 'comment', 'notes', 'students']
         extra_kwargs = {field: {'required': False} for field in fields}
 
     def __init__(self, *args, **kwargs):
@@ -139,6 +141,7 @@ class LessonWriteSerializer(serializers.ModelSerializer):
 class LessonShareSerializer(serializers.ModelSerializer):
     """Публичная карточка урока для входящего по ссылке."""
     teacher_name = serializers.CharField(source='teacher.display_name', read_only=True)
+    status = serializers.CharField(read_only=True)
 
     class Meta:
         model = Lesson

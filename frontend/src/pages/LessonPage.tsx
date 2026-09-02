@@ -43,12 +43,6 @@ export function LessonPage() {
     if (isTeacher) studentsApi.list().then(({ data }) => setStudents(data.results))
   }, [isTeacher])
 
-  const setStatus = async (action: 'start' | 'finish') => {
-    if (!lessonId) return
-    await lessonsApi[action](lessonId)
-    await load()
-  }
-
   const handleEdit = async (data: Parameters<typeof lessonsApi.create>[0]) => {
     if (!lessonId) return
     await lessonsApi.update(lessonId, data)
@@ -130,12 +124,6 @@ export function LessonPage() {
             <>
               <button className="btn-secondary" onClick={() => setShareModal(true)}>Ссылка на вход</button>
               <button className="btn-secondary" onClick={() => setEditModal(true)}>Изменить</button>
-              {lesson.status === 'scheduled' && (
-                <button className="btn-primary" onClick={() => setStatus('start')}>▶ Начать</button>
-              )}
-              {lesson.status === 'active' && (
-                <button className="btn-danger" onClick={() => setStatus('finish')}>■ Завершить</button>
-              )}
             </>
           )}
         </div>
