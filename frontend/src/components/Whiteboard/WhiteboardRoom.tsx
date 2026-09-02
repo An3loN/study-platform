@@ -904,6 +904,7 @@ export function WhiteboardRoom({ roomId, accessToken, username, onParticipantsCh
           onChange={handleChange}
           onPointerUpdate={handlePointerUpdate}
           isCollaborating={status === 'connected'}
+          langCode="ru-RU"
           theme="light"
           // Сетка включена по умолчанию; выключается через контекстное меню холста
           initialData={{ appState: { gridSize: GRID_SIZE } }}

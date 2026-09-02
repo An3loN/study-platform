@@ -517,3 +517,9 @@ input:focus, textarea:focus, select:focus {
 .wb-board .excalidraw .App-toolbar__divider {
   display: none;
 }
+
+/* Меню Excalidraw (гамбургер) — в макете доски его нет. Прячем саму кнопку,
+   а не контейнер App-menu_top__left: в нём же лежит панель свойств инструмента. */
+.wb-board .excalidraw [data-testid='main-menu-trigger'] {
+  display: none;
+}

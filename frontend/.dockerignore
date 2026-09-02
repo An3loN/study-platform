@@ -3,3 +3,6 @@ node_modules
 dist
 .env
 *.log
+
+# Ассеты Excalidraw копируются при сборке из node_modules
+public/excalidraw-assets*
