@@ -106,3 +106,12 @@ input:focus, textarea:focus, select:focus {
 .wb-stroke-slider .excalidraw fieldset:has([data-testid^='strokeWidth-']) .buttonList {
   display: none;
 }
+
+/* На уроке не нужны: справка по шорткатам Excalidraw, библиотека фигур и меню
+   «больше инструментов» — в нём остаются только рамки, веб-эмбеды и mermaid.
+   Указка из этого меню вынесена в общий ряд отдельной кнопкой (WhiteboardRoom). */
+.excalidraw .help-icon,
+.excalidraw label[title='Library'],
+.excalidraw [data-testid='dropdown-menu-button'] {
+  display: none !important;
+}

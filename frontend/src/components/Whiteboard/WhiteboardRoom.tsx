@@ -52,6 +52,32 @@ const STROKE_WIDTH_MAX = 12
 /** Латинская буква по физической клавише: KeyV -> V */
 const PHYSICAL_KEY = /^Key([A-Z])$/
 const CYRILLIC_CHAR = /^[Ѐ-ӿ]$/
+const DIGIT_KEY = /^[0-9]$/
+
+/**
+ * Подписи инструментов: русское название и наша буква.
+ *
+ * Excalidraw вешает на каждый инструмент ещё и цифру, показывая её бейджем
+ * поверх иконки. Цифры мы убираем совсем (см. обработчик клавиш), поэтому и
+ * на иконке должна стоять буква — та самая, которая работает в любой раскладке.
+ *
+ * У вставки изображения своей буквы в Excalidraw нет, только цифра, поэтому
+ * шорткат у неё не показываем.
+ */
+const TOOL_HINTS: Record<string, { label: string; key?: string }> = {
+  'toolbar-hand': { label: 'Рука', key: 'H' },
+  'toolbar-selection': { label: 'Выделение', key: 'V' },
+  'toolbar-freedraw': { label: 'Ручка', key: 'P' },
+  'toolbar-eraser': { label: 'Ластик', key: 'E' },
+  'toolbar-line': { label: 'Прямая', key: 'L' },
+  'toolbar-arrow': { label: 'Стрелка', key: 'A' },
+  'toolbar-rectangle': { label: 'Прямоугольник', key: 'R' },
+  'toolbar-diamond': { label: 'Ромб', key: 'D' },
+  'toolbar-ellipse': { label: 'Овал', key: 'O' },
+  'toolbar-text': { label: 'Текст', key: 'T' },
+  'toolbar-image': { label: 'Изображение' },
+  'toolbar-lock': { label: 'Не сбрасывать инструмент', key: 'Q' },
+}
 
 /**
  * Сколько после undo/redo считать приходящие изменения откатом, а не правкой.
@@ -137,6 +163,14 @@ export function WhiteboardRoom({ roomId, accessToken, username }: Props) {
    * а не в отдельной полосе над доской.
    */
   const [strokeWidthSlot, setStrokeWidthSlot] = useState<HTMLElement | null>(null)
+
+  /**
+   * Ряд кнопок в тулбаре Excalidraw — в него добавляется указка.
+   * Штатно она спрятана в меню «More tools» вместе с рамками, эмбедами и
+   * mermaid, которые на уроке не нужны; меню целиком прячется, а указка
+   * выносится наружу отдельной кнопкой.
+   */
+  const [toolbarSlot, setToolbarSlot] = useState<HTMLElement | null>(null)
 
   /**
    * Yjs -> Excalidraw.
@@ -432,14 +466,25 @@ export function WhiteboardRoom({ roomId, accessToken, username }: Props) {
         undoAtRef.current = Date.now()
       }
 
-      if (remapping || !CYRILLIC_CHAR.test(event.key)) return
-      const physical = PHYSICAL_KEY.exec(event.code)
-      if (!physical) return
-
-      // В полях ввода и в текстовом редакторе доски буквы должны печататься
+      // В полях ввода и в текстовом редакторе доски клавиши работают как обычно
       const target = event.target as HTMLElement | null
       const tag = target?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return
+
+      /**
+       * Цифрами Excalidraw переключает инструменты, дублируя буквы. Двух
+       * наборов шорткатов на одно и то же не нужно, а на иконках вместо цифр
+       * теперь стоят буквы — глушим цифры, чтобы подпись не расходилась с делом.
+       */
+      if (DIGIT_KEY.test(event.key) && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault()
+        event.stopPropagation()
+        return
+      }
+
+      if (remapping || !CYRILLIC_CHAR.test(event.key)) return
+      const physical = PHYSICAL_KEY.exec(event.code)
+      if (!physical) return
 
       const letter = physical[1]
       event.preventDefault()
@@ -487,10 +532,34 @@ export function WhiteboardRoom({ roomId, accessToken, username }: Props) {
     const root = canvasWrapRef.current
     if (!root) return
 
+    /**
+     * Подписи и бейджи на иконках Excalidraw перерисовывает сам, поэтому
+     * проставляем их из того же наблюдателя. Пишем только при отличии —
+     * иначе собственная правка снова разбудит наблюдателя.
+     */
+    const applyToolHints = () => {
+      Object.entries(TOOL_HINTS).forEach(([testid, hint]) => {
+        const label = root.querySelector(`[data-testid="${testid}"]`)?.closest('label')
+        if (!label) return
+
+        const title = hint.key ? `${hint.label} — ${hint.key}` : hint.label
+        if (label.getAttribute('title') !== title) label.setAttribute('title', title)
+
+        const badge = label.querySelector('.ToolIcon__keybinding')
+        const text = hint.key ?? ''
+        if (badge && badge.textContent !== text) badge.textContent = text
+      })
+    }
+
     const findSlot = () => {
       const button = root.querySelector('[data-testid^="strokeWidth-"]')
       const fieldset = (button?.closest('fieldset') as HTMLElement | null) ?? null
       setStrokeWidthSlot((prev) => (prev === fieldset ? prev : fieldset))
+
+      const stack = (root.querySelector('.App-toolbar .Stack_horizontal') as HTMLElement | null) ?? null
+      setToolbarSlot((prev) => (prev === stack ? prev : stack))
+
+      applyToolHints()
     }
 
     findSlot()
@@ -657,6 +726,34 @@ export function WhiteboardRoom({ roomId, accessToken, username }: Props) {
           />
         </label>,
         strokeWidthSlot,
+      )}
+
+      {/**
+        * Указка. Штатно она лежит в меню «More tools» рядом с рамками, эмбедами
+        * и mermaid — их на уроке не бывает, поэтому меню скрыто целиком (см.
+        * index.css), а указка вынесена в общий ряд отдельной кнопкой.
+        * Разметка и классы взяты у родных кнопок, чтобы не выбиваться из ряда.
+        */}
+      {toolbarSlot && createPortal(
+        <label className="ToolIcon Shape" title="Указка — K">
+          <input
+            className="ToolIcon_type_radio ToolIcon_size_medium"
+            type="radio"
+            name="editor-current-shape"
+            aria-label="Указка"
+            checked={activeTool === 'laser'}
+            onChange={() => apiRef.current?.setActiveTool({ type: 'laser' })}
+          />
+          <div className="ToolIcon__icon">
+            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 4 12.5 11.5" />
+              <path d="M9.5 14.5 4 20" />
+              <circle cx="11" cy="13" r="2.5" />
+            </svg>
+            <span className="ToolIcon__keybinding">K</span>
+          </div>
+        </label>,
+        toolbarSlot,
       )}
 
       {/* Excalidraw занимает оставшееся пространство */}
