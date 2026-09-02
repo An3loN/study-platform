@@ -23,6 +23,15 @@ export interface LessonRoom {
   sendMessage: (text: string) => void
 }
 
+const RECONNECT_BASE_MS = 1_000
+const RECONNECT_MAX_MS = 15_000
+
+/**
+ * Коды, с которыми переподключаться бессмысленно: сервер отказал в доступе
+ * (см. LessonConsumer.connect — 4001 «нет авторизации», 4003 «нет доступа»).
+ */
+const FATAL_CLOSE_CODES = new Set([4001, 4003])
+
 /**
  * Соединение с комнатой урока живёт на уровне страницы, а не внутри чата.
  * Иначе переключение боковой вкладки размонтирует чат, сокет закрывается —
@@ -41,32 +50,61 @@ export function useLessonRoom(roomId?: string, accessToken?: string): LessonRoom
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const url = `${protocol}//${window.location.host}/ws/lesson/${roomId}/?token=${encodeURIComponent(accessToken)}`
 
-    const ws = new WebSocket(url)
-    wsRef.current = ws
+    // Размонтирование и смена комнаты не должны реанимировать сокет из таймера
+    let disposed = false
+    let attempt = 0
+    let retryTimer: number | null = null
 
-    ws.onopen = () => setConnected(true)
-    ws.onclose = () => setConnected(false)
+    const connect = () => {
+      const ws = new WebSocket(url)
+      wsRef.current = ws
 
-    ws.onmessage = (event: MessageEvent) => {
-      const msg = JSON.parse(event.data as string) as WsMessage
+      ws.onopen = () => {
+        attempt = 0
+        setConnected(true)
+      }
 
-      if (msg.type === 'chat.message') {
-        setMessages((prev) => [...prev, { userId: msg.userId, username: msg.username, message: msg.message }])
-      } else if (msg.type === 'presence.join') {
-        setParticipants((prev) => (
-          prev.some((p) => p.connectionId === msg.connectionId)
-            ? prev
-            : [...prev, { connectionId: msg.connectionId, userId: msg.userId, username: msg.username }]
-        ))
-      } else if (msg.type === 'presence.leave') {
-        setParticipants((prev) => prev.filter((p) => p.connectionId !== msg.connectionId))
+      /**
+       * Обрыв связи не должен молча выкидывать из урока: доска через Hocuspocus
+       * переподключается сама, а чат до этого умирал до перезагрузки страницы.
+       */
+      ws.onclose = (event: CloseEvent) => {
+        setConnected(false)
+        // Состав комнаты собирается заново при следующем подключении
+        setParticipants([])
+        if (disposed || FATAL_CLOSE_CODES.has(event.code)) return
+
+        attempt += 1
+        const delay = Math.min(RECONNECT_BASE_MS * 2 ** (attempt - 1), RECONNECT_MAX_MS)
+        retryTimer = window.setTimeout(connect, delay)
+      }
+
+      ws.onmessage = (event: MessageEvent) => {
+        const msg = JSON.parse(event.data as string) as WsMessage
+
+        if (msg.type === 'chat.message') {
+          setMessages((prev) => [...prev, { userId: msg.userId, username: msg.username, message: msg.message }])
+        } else if (msg.type === 'presence.join') {
+          setParticipants((prev) => (
+            prev.some((p) => p.connectionId === msg.connectionId)
+              ? prev
+              : [...prev, { connectionId: msg.connectionId, userId: msg.userId, username: msg.username }]
+          ))
+        } else if (msg.type === 'presence.leave') {
+          setParticipants((prev) => prev.filter((p) => p.connectionId !== msg.connectionId))
+        }
       }
     }
 
+    connect()
+
     return () => {
+      disposed = true
+      if (retryTimer !== null) window.clearTimeout(retryTimer)
+      const ws = wsRef.current
       wsRef.current = null
       setParticipants([])
-      ws.close()
+      ws?.close()
     }
   }, [roomId, accessToken])
 
