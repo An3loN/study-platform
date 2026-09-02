@@ -406,11 +406,33 @@ input:focus, textarea:focus, select:focus {
 }
 .wb-board .excalidraw input[type='range'] { accent-color: var(--sky-500); }
 
+/* Нижний левый угол. Excalidraw держит отмену с повтором и масштаб в двух
+   группах, но это не .Island — общее оформление островов их не касается,
+   поэтому карточки описаны отдельно. В макете они идут в другом порядке:
+   сначала отмена и повтор, потом масштаб. */
+/* Свой отступ слева у Excalidraw был рассчитан на вторую позицию — обнуляем,
+   иначе весь ряд уезжает от края холста */
+.wb-board .excalidraw .undo-redo-buttons { order: 1; margin-left: 0; }
+/* Отступ между карточками — маргином, а не gap секции: первым её элементом
+   идёт заголовок для скринридеров, и gap добавлял бы отступ ещё и перед ним */
+.wb-board .excalidraw .zoom-actions { order: 2; margin-left: 10px; }
+
+.wb-board .excalidraw .zoom-actions,
+.wb-board .excalidraw .undo-redo-buttons {
+  padding: 4px;
+  background: var(--ink-0);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-sm);
+}
+
 /* Отмена, повтор и масштаб — 36×36, как в макете. Размер кнопки у Excalidraw
    задаётся одной переменной и на панель инструментов, и на нижний ряд, а в
    макете они разные, поэтому здесь размер проставляется явно. Скругление тоже:
    по умолчанию Excalidraw скругляет группу снаружи, а в макете каждая кнопка
    скруглена сама по себе. */
+.wb-board .excalidraw .undo-redo-buttons button,
+.wb-board .excalidraw .zoom-actions button:not(.reset-zoom-button),
 .wb-board .excalidraw .undo-redo-buttons .ToolIcon__icon,
 .wb-board .excalidraw .zoom-actions .ToolIcon__icon {
   width: 36px;
@@ -423,6 +445,7 @@ input:focus, textarea:focus, select:focus {
 /* Масштаб — моноширинным, чтобы цифры не прыгали при изменении */
 .wb-board .excalidraw .reset-zoom-button {
   min-width: 58px;
+  height: 36px;
   font: 500 14px/1 var(--font-mono);
   color: var(--ink-700);
   font-variant-numeric: tabular-nums;
