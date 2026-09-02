@@ -604,9 +604,10 @@ export function WhiteboardRoom({ roomId, accessToken, username, onParticipantsCh
       })
 
       // Отмена, повтор и масштаб — те же иконки из макета, размером поменьше.
-      // Ищем от документа: нижнюю панель Excalidraw рендерит мимо нашей обёртки.
-      paintIcon(document.querySelector('button[aria-label="Undo"]'), 'undo', 18)
-      paintIcon(document.querySelector('button[aria-label="Redo"]'), 'redo', 18)
+      // Ищем по классам, а не по подписям: подписи переводятся вместе с локалью.
+      const [undoButton, redoButton] = document.querySelectorAll('.undo-redo-buttons button')
+      paintIcon(undoButton, 'undo', 18)
+      paintIcon(redoButton, 'redo', 18)
       paintIcon(document.querySelector('.zoom-out-button'), 'zoomOut', 18)
       paintIcon(document.querySelector('.zoom-in-button'), 'zoomIn', 18)
     }

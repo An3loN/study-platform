@@ -335,8 +335,11 @@ input:focus, textarea:focus, select:focus {
    «больше инструментов» — в нём остаются только рамки, веб-эмбеды и mermaid.
    Указка из этого меню вынесена в общий ряд отдельной кнопкой (WhiteboardRoom). */
 .excalidraw .help-icon,
-.excalidraw label[title='Library'],
-.excalidraw [data-testid='dropdown-menu-button'] {
+.excalidraw [data-testid='dropdown-menu-button'],
+/* Верхний правый угол холста: библиотека фигур и список участников. Первая не
+   нужна, второй дублирует аватарки в шапке урока. К заголовку не привязываемся —
+   он переводится вместе с локалью. */
+.excalidraw .layer-ui__wrapper__top-right {
   display: none !important;
 }
 
@@ -402,6 +405,20 @@ input:focus, textarea:focus, select:focus {
   color: var(--ink-400);
 }
 .wb-board .excalidraw input[type='range'] { accent-color: var(--sky-500); }
+
+/* Отмена, повтор и масштаб — 36×36, как в макете. Размер кнопки у Excalidraw
+   задаётся одной переменной и на панель инструментов, и на нижний ряд, а в
+   макете они разные, поэтому здесь размер проставляется явно. Скругление тоже:
+   по умолчанию Excalidraw скругляет группу снаружи, а в макете каждая кнопка
+   скруглена сама по себе. */
+.wb-board .excalidraw .undo-redo-buttons .ToolIcon__icon,
+.wb-board .excalidraw .zoom-actions .ToolIcon__icon {
+  width: 36px;
+  height: 36px;
+  /* important — единственный способ перебить их правило для крайних кнопок
+     группы: оно специфичнее любого разумного селектора с нашей стороны */
+  border-radius: var(--radius-control) !important;
+}
 
 /* Масштаб — моноширинным, чтобы цифры не прыгали при изменении */
 .wb-board .excalidraw .reset-zoom-button {
