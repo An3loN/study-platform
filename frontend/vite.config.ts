@@ -23,10 +23,6 @@ export default defineConfig({
         target: 'http://backend:8000',
         changeOrigin: true,
       },
-      '/ws': {
-        target: 'ws://backend:8000',
-        ws: true,
-      },
       '/board': {
         target: 'ws://hocuspocus:1234',
         ws: true,

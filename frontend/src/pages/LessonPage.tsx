@@ -1,14 +1,12 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { WhiteboardRoom } from '@/components/Whiteboard/WhiteboardRoom'
-import { Chat } from '@/components/Lesson/Chat'
 import { LessonForm } from '@/components/Lesson/LessonForm'
 import { LessonNotes } from '@/components/Lesson/LessonNotes'
 import { HomeworkPanel } from '@/components/Lesson/HomeworkPanel'
 import { LessonSidebar, type SidebarTab } from '@/components/Lesson/LessonSidebar'
 import { Modal } from '@/components/UI/Modal'
 import { ShareBlock } from '@/components/UI/ShareBlock'
-import { useLessonRoom } from '@/hooks/useLessonRoom'
 import { lessonsApi, studentsApi } from '@/services/api'
 import { useAuthStore } from '@/store/authStore'
 import type { LessonDetail, Student } from '@/types'
@@ -31,18 +29,6 @@ export function LessonPage() {
   const user = useAuthStore((s) => s.user)
   const accessToken = useAuthStore((s) => s.accessToken)
   const isTeacher = user?.role === 'teacher'
-
-  // Соединение с комнатой держит страница: свернули панель или ушли на другую
-  // вкладку — человек остаётся в комнате, а история сообщений никуда не девается
-  const room = useLessonRoom(lesson?.roomId, accessToken ?? undefined)
-
-  // Непрочитанные считаем, пока чат не на виду
-  const [seenCount, setSeenCount] = useState(0)
-  const [visibleTab, setVisibleTab] = useState<string | null>(null)
-  useEffect(() => {
-    if (visibleTab === 'chat') setSeenCount(room.messages.length)
-  }, [visibleTab, room.messages.length])
-  const unread = Math.max(0, room.messages.length - seenCount)
 
   const load = useCallback(async () => {
     if (!lessonId) return
@@ -90,7 +76,6 @@ export function LessonPage() {
   const hasComment = Boolean(lesson.comment.trim())
 
   const tabs: SidebarTab[] = [
-    { key: 'chat', label: 'Чат', badge: unread, render: () => <Chat room={room} /> },
     ...(isTeacher
       ? [{
           key: 'notes',
@@ -163,11 +148,10 @@ export function LessonPage() {
             roomId={lesson.roomId}
             accessToken={accessToken}
             username={user?.displayName}
-            readonly={lesson.status === 'finished'}
           />
         </div>
 
-        <LessonSidebar tabs={tabs} onVisibleTabChange={setVisibleTab} />
+        <LessonSidebar tabs={tabs} />
       </div>
 
       {commentModal && (

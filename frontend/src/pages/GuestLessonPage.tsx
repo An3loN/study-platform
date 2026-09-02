@@ -1,9 +1,6 @@
 import { useEffect, useState, FormEvent } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { WhiteboardRoom } from '@/components/Whiteboard/WhiteboardRoom'
-import { Chat } from '@/components/Lesson/Chat'
-import { LessonSidebar } from '@/components/Lesson/LessonSidebar'
-import { useLessonRoom } from '@/hooks/useLessonRoom'
 import { lessonsApi } from '@/services/api'
 import { loadGuestSession, saveGuestSession, clearGuestSession } from '@/utils/guestSession'
 import type { GuestSession, LessonShare } from '@/types'
@@ -11,7 +8,7 @@ import { STATUS_LABEL, formatDateTime, formatDuration, lessonTitle } from '@/uti
 
 /**
  * Вход на урок по ссылке без аккаунта: гость называет имя и получает
- * временный токен на комнату — доска и чат, ничего больше.
+ * временный токен на комнату — только доска, ничего больше.
  */
 export function GuestLessonPage() {
   const { shareToken } = useParams<{ shareToken: string }>()
@@ -25,10 +22,6 @@ export function GuestLessonPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [joining, setJoining] = useState(false)
-
-  // Соединение живёт на уровне страницы: сворачивание панели не должно
-  // выкидывать гостя из списка участников
-  const room = useLessonRoom(session?.roomId, session?.access)
 
   useEffect(() => {
     if (!shareToken) return
@@ -74,7 +67,7 @@ export function GuestLessonPage() {
     )
   }
 
-  // Гость представился — показываем доску и чат.
+  // Гость представился — показываем доску.
   // Данные урока берём из свежего lesson, а не из session: сессия могла быть
   // сохранена час назад, за это время урок мог и завершиться.
   if (session) {
@@ -113,18 +106,11 @@ export function GuestLessonPage() {
           </div>
         </header>
 
-        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-          <div style={{ flex: 1, overflow: 'hidden' }}>
-            <WhiteboardRoom
-              roomId={session.roomId}
-              accessToken={session.access}
-              username={session.name}
-              readonly={lesson.status === 'finished'}
-            />
-          </div>
-          <LessonSidebar
-            storageKey="guest_lesson_sidebar"
-            tabs={[{ key: 'chat', label: 'Чат', render: () => <Chat room={room} /> }]}
+        <div style={{ flex: 1, overflow: 'hidden' }}>
+          <WhiteboardRoom
+            roomId={session.roomId}
+            accessToken={session.access}
+            username={session.name}
           />
         </div>
       </div>

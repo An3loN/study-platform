@@ -119,10 +119,3 @@ export interface Paginated<T> {
   previous: string | null
   results: T[]
 }
-
-// WebSocket messages (Django Channels)
-export type WsMessage =
-  | { type: 'chat.message'; message: string; userId: string; username: string }
-  | { type: 'presence.join'; connectionId: string; userId: string; username: string }
-  | { type: 'presence.leave'; connectionId: string; userId: string; username: string }
-  | { type: 'lesson.status'; status: LessonStatus }

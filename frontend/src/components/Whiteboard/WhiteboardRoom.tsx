@@ -17,7 +17,6 @@ interface Props {
   accessToken: string
   /** Имя, которое видят остальные рядом с курсором */
   username?: string
-  readonly?: boolean
 }
 
 type SyncStatus = 'connecting' | 'connected' | 'disconnected' | 'forbidden'
@@ -86,7 +85,7 @@ function boardUrl(): string {
   return `${protocol}//${window.location.host}/board`
 }
 
-export function WhiteboardRoom({ roomId, accessToken, username, readonly = false }: Props) {
+export function WhiteboardRoom({ roomId, accessToken, username }: Props) {
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(null)
   const ydocRef = useRef<Y.Doc | null>(null)
   const providerRef = useRef<HocuspocusProvider | null>(null)
@@ -130,6 +129,7 @@ export function WhiteboardRoom({ roomId, accessToken, username, readonly = false
   const [status, setStatus] = useState<SyncStatus>('connecting')
   const [strokeWidth, setStrokeWidth] = useState(1)
   const [activeTool, setActiveTool] = useState('selection')
+  const [participants, setParticipants] = useState<string[]>([])
 
   /**
    * Секция «Stroke width» в левой панели Excalidraw — в неё встраивается
@@ -351,6 +351,20 @@ export function WhiteboardRoom({ roomId, accessToken, username, readonly = false
     const applyCollaborators = (changes?: { added: number[]; updated: number[]; removed: number[] }) => {
       const api = apiRef.current
       if (!api || !awareness) return
+
+      // Состав комнаты — тоже из awareness: отдельного канала присутствия нет.
+      // Себя включаем, иначе в одиночку комната выглядит пустой.
+      const names: string[] = []
+      awareness.getStates().forEach((state: Record<string, unknown>) => {
+        const user = state.user as { name?: string } | undefined
+        if (user?.name) names.push(user.name)
+      })
+      names.sort((a, b) => a.localeCompare(b))
+      // Возвращаем прежний массив, когда состав не изменился: иначе setState
+      // срабатывал бы на каждое движение чужой мыши
+      setParticipants((prev) => (
+        prev.length === names.length && prev.every((n, i) => n === names[i]) ? prev : names
+      ))
 
       if (changes) {
         const touched = [...changes.added, ...changes.updated, ...changes.removed]
@@ -596,7 +610,7 @@ export function WhiteboardRoom({ roomId, accessToken, username, readonly = false
   }, [])
 
   // Толщину слайдером задаём только карандашу — см. комментарий у портала ниже
-  const showStrokeSlider = !readonly && activeTool === 'freedraw'
+  const showStrokeSlider = activeTool === 'freedraw'
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -617,6 +631,12 @@ export function WhiteboardRoom({ roomId, accessToken, username, readonly = false
           display: 'inline-block',
         }} />
         {STATUS_LABEL[status]}
+
+        {participants.length > 0 && (
+          <span style={{ marginLeft: 'auto', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            В комнате: {participants.join(', ')}
+          </span>
+        )}
       </div>
 
       {/**
@@ -652,9 +672,8 @@ export function WhiteboardRoom({ roomId, accessToken, username, readonly = false
             // Состояние могло приехать раньше, чем Excalidraw отдал API
             applyRemoteState()
           }}
-          onChange={readonly ? undefined : handleChange}
+          onChange={handleChange}
           onPointerUpdate={handlePointerUpdate}
-          viewModeEnabled={readonly}
           isCollaborating={status === 'connected'}
           theme="light"
           // Сетка включена по умолчанию; выключается через контекстное меню холста
