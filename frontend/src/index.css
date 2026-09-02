@@ -430,12 +430,20 @@ input:focus, textarea:focus, select:focus {
 .wb-board .excalidraw .App-toolbar .wb-tool-divider--2                          { order: 11; }
 .wb-board .excalidraw .App-toolbar .wb-tool-laser                               { order: 12; }
 
-/* Три фигуры собраны под одной кнопкой, а «не сбрасывать инструмент» в макете
-   панели нет — обе группы прячем, но сами инструменты остаются доступны */
-.wb-board .excalidraw .App-toolbar label:has([data-testid='toolbar-rectangle']),
-.wb-board .excalidraw .App-toolbar label:has([data-testid='toolbar-diamond']),
-.wb-board .excalidraw .App-toolbar label:has([data-testid='toolbar-ellipse']),
-.wb-board .excalidraw .App-toolbar label:has([data-testid='toolbar-lock']) {
+/* Прячем родные кнопки, которых в макете панели нет или которые дублируют наши.
+   Инструменты при этом остаются доступны — и с клавиатуры, и через setActiveTool.
+
+   Селекторы не привязаны к .App-toolbar намеренно: «руку» и указку Excalidraw
+   в зависимости от ширины окна кладёт то в общий ряд, то в отдельный контейнер
+   рядом с панелью, и привязка к одному месту оставляла дубль во втором. */
+.wb-board .excalidraw label:has([data-testid='toolbar-rectangle']),
+.wb-board .excalidraw label:has([data-testid='toolbar-diamond']),
+.wb-board .excalidraw label:has([data-testid='toolbar-ellipse']),
+.wb-board .excalidraw label:has([data-testid='toolbar-lock']),
+.wb-board .excalidraw label:has([data-testid='toolbar-hand']),
+/* Указку Excalidraw держит в отдельном островке, где кроме неё ничего нет —
+   убираем вместе с ним, иначе рядом с панелью висит пустая карточка */
+.wb-board .excalidraw .Island:has([data-testid='toolbar-LaserPointer']) {
   display: none;
 }
 
@@ -503,9 +511,8 @@ input:focus, textarea:focus, select:focus {
   color: var(--ink-400);
 }
 
-/* Родные «рука» и «не сбрасывать инструмент» живут в отдельном контейнере
-   рядом с панелью — в макете его нет, а рука вынесена в общий ряд своей кнопкой.
-   Свой разделитель у Excalidraw тоже лишний: разделители расставлены по макету. */
+/* Контейнер с родными «рукой» и замком и собственный разделитель Excalidraw —
+   в макете панели их нет, разделители расставлены по нему же. */
 .wb-board .excalidraw .mobile-misc-tools-container,
 .wb-board .excalidraw .App-toolbar__divider {
   display: none;
