@@ -11,20 +11,23 @@ def next_lesson_at(homework, student=None):
     Срок сдачи — ближайший следующий урок после того, на котором задано.
     Для ученика считаем по его собственным урокам, для преподавателя —
     по урокам с теми же участниками.
+
+    У задания без урока отсчёт идёт от момента, когда его выдали: «до
+    следующего занятия» там означает ровно то же самое.
     """
     lesson = homework.lesson
-    if lesson.scheduled_at is None:
+    after = lesson.scheduled_at if lesson else homework.created_at
+    if after is None:
         return None
 
-    query = Lesson.objects.filter(
-        teacher_id=lesson.teacher_id,
-        scheduled_at__gt=lesson.scheduled_at,
-    ).exclude(pk=lesson.pk)
+    query = Lesson.objects.filter(teacher_id=homework.teacher_id, scheduled_at__gt=after)
+    if lesson:
+        query = query.exclude(pk=lesson.pk)
 
     if student is not None:
         query = query.filter(students=student)
     else:
-        student_ids = list(lesson.students.values_list('id', flat=True))
+        student_ids = list(homework.student_set.values_list('id', flat=True))
         if student_ids:
             query = query.filter(students__in=student_ids)
 
@@ -107,28 +110,54 @@ class HomeworkSubmissionSerializer(serializers.ModelSerializer):
 
 
 class HomeworkSerializer(serializers.ModelSerializer):
+    """
+    Урока у задания может не быть, поэтому всё, что раньше выводилось из него,
+    берётся у самого задания: преподаватель — из своего поля, адресаты — из
+    `student_set`. Поля урока в таком случае приходят пустыми.
+    """
     lesson_title = serializers.SerializerMethodField()
-    lesson_scheduled_at = serializers.DateTimeField(source='lesson.scheduled_at', read_only=True)
-    # Собеседник ученика в обсуждении — берём с урока, чтобы окно задания
-    # можно было открыть и там, где самого урока под рукой нет
-    teacher = UserPublicSerializer(source='lesson.teacher', read_only=True)
+    lesson_scheduled_at = serializers.SerializerMethodField()
+    # Собеседник ученика в обсуждении: окно задания открывается и там, где
+    # самого урока под рукой нет
+    teacher = UserPublicSerializer(read_only=True)
     due_at = serializers.DateTimeField(required=False, allow_null=True)
     effective_due_at = serializers.SerializerMethodField()
     submissions = serializers.SerializerMethodField()
     my_submission = serializers.SerializerMethodField()
     messages_count = serializers.SerializerMethodField()
+    # Только на запись и только для заданий без урока: у задания с уроком поле
+    # пустое, и отдавать его наружу значило бы врать, что адресатов нет.
+    # Кому задано на самом деле, видно по `submissions`.
+    students = serializers.PrimaryKeyRelatedField(
+        many=True,
+        write_only=True,
+        required=False,
+        queryset=User.objects.none(),
+    )
 
     class Meta:
         model = Homework
         fields = [
             'id', 'lesson', 'lesson_title', 'lesson_scheduled_at', 'teacher', 'text', 'attachment',
             'due_at', 'effective_due_at', 'submissions', 'my_submission', 'messages_count',
-            'created_at',
+            'students', 'created_at',
         ]
         read_only_fields = ['id', 'lesson', 'created_at']
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            # Задать домашку можно только своим ученикам
+            self.fields['students'].child_relation.queryset = User.objects.filter(
+                teacher=request.user, role=User.ROLE_STUDENT,
+            )
+
     def get_lesson_title(self, obj):
-        return str(obj.lesson)
+        return str(obj.lesson) if obj.lesson_id else None
+
+    def get_lesson_scheduled_at(self, obj):
+        return obj.lesson.scheduled_at if obj.lesson_id else None
 
     def get_effective_due_at(self, obj):
         """
@@ -153,13 +182,13 @@ class HomeworkSerializer(serializers.ModelSerializer):
 
     def get_submissions(self, obj):
         """
-        Преподавателю — строка на каждого ученика урока, включая тех, кто
+        Преподавателю — строка на каждого, кому задано, включая тех, кто
         ничего не присылал. Ученику — только своя: чужие оценки и работы его
         не касаются.
         """
         user = self.context['request'].user
-        students = list(obj.lesson.students.all())
-        if obj.lesson.teacher_id != user.id:
+        students = list(obj.student_set.all())
+        if obj.teacher_id != user.id:
             students = [student for student in students if student.id == user.id]
         return HomeworkSubmissionSerializer(
             [self._submission_for(obj, student) for student in students],
@@ -170,7 +199,7 @@ class HomeworkSerializer(serializers.ModelSerializer):
     def get_my_submission(self, obj):
         user = self.context['request'].user
         submission = next((s for s in obj.submissions.all() if s.student_id == user.id), None)
-        if submission is None and obj.lesson.students.filter(pk=user.pk).exists():
+        if submission is None and obj.student_set.filter(pk=user.pk).exists():
             submission = HomeworkSubmission(homework=obj, student=user)
         if submission is None:
             return None
@@ -180,7 +209,7 @@ class HomeworkSerializer(serializers.ModelSerializer):
         """Ученику считаем его ветку: чужие обсуждения он не видит и в счёт
         их брать нельзя."""
         user = self.context['request'].user
-        if obj.lesson.teacher_id == user.id:
+        if obj.teacher_id == user.id:
             return obj.messages.count()
         return len(thread_messages(obj, user.id))
 

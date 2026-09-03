@@ -83,8 +83,9 @@ export interface HomeworkMessage {
 
 export interface Homework {
   id: string
-  lesson: string
-  lessonTitle: string
+  /** Задание не обязано быть привязано к уроку: null — задано между занятиями */
+  lesson: string | null
+  lessonTitle: string | null
   lessonScheduledAt: string | null
   /** Преподаватель урока — собеседник ученика в обсуждении задания */
   teacher: UserPublic

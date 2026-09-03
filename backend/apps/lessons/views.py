@@ -248,30 +248,32 @@ class HomeworkListCreateView(generics.ListCreateAPIView):
         return lesson
 
     def get_queryset(self):
-        return self.get_lesson().homework.prefetch_related('submissions__student', 'messages', 'lesson__students')
+        return self.get_lesson().homework.prefetch_related('submissions__student', 'messages', 'lesson__students', 'students')
 
     def perform_create(self, serializer):
         lesson = self.get_lesson()
         if lesson.teacher_id != self.request.user.id:
             self.permission_denied(self.request, message='Задание может добавить только преподаватель.')
-        serializer.save(lesson=lesson)
+        # Адресаты у задания с уроком берутся из самого урока, поэтому список
+        # учеников тут не принимаем даже если его прислали
+        serializer.save(lesson=lesson, teacher=lesson.teacher, students=[])
 
 
 class HomeworkDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """Правка и удаление задания — преподавателю урока."""
+    """Правка и удаление задания — преподавателю, который его задал."""
     serializer_class = HomeworkSerializer
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
-        return Homework.objects.select_related('lesson').prefetch_related('submissions__student', 'messages', 'lesson__students')
+        return Homework.objects.select_related('lesson').prefetch_related('submissions__student', 'messages', 'lesson__students', 'students')
 
     def get_object(self):
         homework = get_object_or_404(self.get_queryset(), pk=self.kwargs['pk'])
         if self.request.method in ('PUT', 'PATCH', 'DELETE'):
-            if homework.lesson.teacher_id != self.request.user.id:
+            if homework.teacher_id != self.request.user.id:
                 self.permission_denied(self.request)
-        elif not homework.lesson.is_participant(self.request.user):
+        elif not homework.is_participant(self.request.user):
             self.permission_denied(self.request)
         return homework
 
@@ -279,13 +281,13 @@ class HomeworkDetailView(generics.RetrieveUpdateDestroyAPIView):
 def get_homework_for(user, pk, teacher_only=False):
     """Задание, если пользователь имеет к нему отношение."""
     homework = get_object_or_404(
-        Homework.objects.select_related('lesson').prefetch_related('submissions__student', 'messages', 'lesson__students'),
+        Homework.objects.select_related('lesson').prefetch_related('submissions__student', 'messages', 'lesson__students', 'students'),
         pk=pk,
     )
     if teacher_only:
-        if homework.lesson.teacher_id != user.id:
+        if homework.teacher_id != user.id:
             raise exceptions.PermissionDenied('Это может только преподаватель.')
-    elif not homework.lesson.is_participant(user):
+    elif not homework.is_participant(user):
         raise exceptions.PermissionDenied('Нет доступа к заданию.')
     return homework
 
@@ -335,8 +337,8 @@ class HomeworkReviewView(APIView):
         student_id = request.data.get('student')
         if not student_id:
             return Response({'detail': 'Не указан ученик.'}, status=status.HTTP_400_BAD_REQUEST)
-        if not homework.lesson.students.filter(pk=student_id).exists():
-            return Response({'detail': 'Этот ученик не на уроке.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not homework.student_set.filter(pk=student_id).exists():
+            return Response({'detail': 'Этому ученику задание не задавали.'}, status=status.HTTP_400_BAD_REQUEST)
 
         accepted = bool(request.data.get('accepted', False))
         grade = request.data.get('grade')
@@ -389,14 +391,14 @@ class HomeworkMessageListCreateView(generics.ListCreateAPIView):
     def get_thread_student(self, homework):
         """Чья ветка. Для ученика — своя, для преподавателя — из запроса."""
         user = self.request.user
-        if homework.lesson.teacher_id != user.id:
+        if homework.teacher_id != user.id:
             return user.id
 
         student_id = self.request.query_params.get('student') or self.request.data.get('student')
         if not student_id:
             raise exceptions.ValidationError({'detail': 'Не указан ученик.'})
-        if not homework.lesson.students.filter(pk=student_id).exists():
-            raise exceptions.ValidationError({'detail': 'Этот ученик не на уроке.'})
+        if not homework.student_set.filter(pk=student_id).exists():
+            raise exceptions.ValidationError({'detail': 'Этому ученику задание не задавали.'})
         return student_id
 
     def get_queryset(self):
@@ -417,16 +419,38 @@ class HomeworkMessageListCreateView(generics.ListCreateAPIView):
         serializer.save(homework=homework, author=self.request.user, student_id=student_id)
 
 
-class MyHomeworkListView(generics.ListAPIView):
-    """Домашние задания пользователя — для главной страницы ученика."""
+class MyHomeworkListView(generics.ListCreateAPIView):
+    """
+    GET  — домашние задания пользователя, и привязанные к уроку, и нет.
+    POST — задание без урока: преподаватель сам перечисляет, кому задаёт.
+           Задание к занятию создаётся своим маршрутом, там адресаты уже
+           известны из урока.
+    """
     serializer_class = HomeworkSerializer
     permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
+        user = self.request.user
+        # Преподавателю — всё, что он задал; ученику — заданное ему, через
+        # урок или напрямую
+        mine = Q(teacher=user) if user.is_teacher else (Q(lesson__students=user) | Q(students=user))
         return (
             Homework.objects
-            .filter(lesson__in=lessons_for(self.request.user))
-            .select_related('lesson')
-            .prefetch_related('submissions__student', 'messages', 'lesson__students')
+            .filter(mine)
+            .select_related('lesson', 'teacher')
+            .prefetch_related('submissions__student', 'messages', 'lesson__students', 'students')
             .distinct()
         )
+
+    def get_permissions(self):
+        if self.request.method == 'POST':
+            return [IsTeacher()]
+        return super().get_permissions()
+
+    def perform_create(self, serializer):
+        if not serializer.validated_data.get('students'):
+            raise exceptions.ValidationError(
+                {'students': 'Укажите, кому задано: без урока адресатов взять неоткуда.'},
+            )
+        serializer.save(teacher=self.request.user)

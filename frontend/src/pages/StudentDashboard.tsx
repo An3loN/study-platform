@@ -8,7 +8,7 @@ import { Menu } from '@/components/UI/Menu'
 import { lessonsApi, homeworkApi } from '@/services/api'
 import { useAuthStore } from '@/store/authStore'
 import type { Homework, Lesson } from '@/types'
-import { STATUS_LABEL, formatDateTime, formatDuration, lessonTitle } from '@/utils/format'
+import { STATUS_LABEL, formatDateTime, formatDay, formatDuration, lessonTitle } from '@/utils/format'
 
 export function StudentDashboard() {
   const [lessons, setLessons] = useState<Lesson[]>([])
@@ -128,7 +128,10 @@ export function StudentDashboard() {
                     </a>
                   )}
                   <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 6 }}>
-                    Задано на уроке {formatDateTime(item.lessonScheduledAt)}
+                    {/* Урока у задания может и не быть — тогда отсчёт от выдачи */}
+                    {item.lesson
+                      ? `Задано на уроке ${formatDateTime(item.lessonScheduledAt)}`
+                      : `Задано ${formatDay(item.createdAt)}`}
                     {item.effectiveDueAt && ` · сдать к ${formatDateTime(item.effectiveDueAt)}`}
                   </p>
                   <p style={{ fontSize: 12, marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>

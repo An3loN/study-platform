@@ -6,6 +6,9 @@ from .models import Lesson, Homework, HomeworkSubmission, HomeworkMessage
 class HomeworkInline(admin.TabularInline):
     model = Homework
     extra = 0
+    # У задания к уроку и преподаватель, и адресаты уже определены самим
+    # уроком: спрашивать их здесь незачем, а ошибиться — легко
+    exclude = ['teacher', 'students']
 
 
 @admin.register(Lesson)
@@ -17,6 +20,18 @@ class LessonAdmin(admin.ModelAdmin):
     readonly_fields = ['room_id', 'share_token', 'created_at']
     inlines = [HomeworkInline]
 
+    def save_formset(self, request, form, formset, change):
+        """Заданию, добавленному на странице урока, преподавателя проставляем
+        сами — поле из формы убрано, а без него сохранить нельзя."""
+        instances = formset.save(commit=False)
+        for instance in instances:
+            if isinstance(instance, Homework) and not instance.teacher_id:
+                instance.teacher = form.instance.teacher
+            instance.save()
+        formset.save_m2m()
+        for deleted in formset.deleted_objects:
+            deleted.delete()
+
 
 class HomeworkSubmissionInline(admin.TabularInline):
     model = HomeworkSubmission
@@ -26,8 +41,11 @@ class HomeworkSubmissionInline(admin.TabularInline):
 
 @admin.register(Homework)
 class HomeworkAdmin(admin.ModelAdmin):
-    list_display = ['__str__', 'due_at', 'created_at']
+    # lesson в списке — чтобы сразу отличать задания без урока
+    list_display = ['__str__', 'teacher', 'lesson', 'due_at', 'created_at']
+    list_filter = ['teacher']
     readonly_fields = ['created_at']
+    filter_horizontal = ['students']
     inlines = [HomeworkSubmissionInline]
 
 

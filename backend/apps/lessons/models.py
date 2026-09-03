@@ -152,7 +152,14 @@ class Lesson(models.Model):
 
 class Homework(models.Model):
     """
-    Домашнее задание крепится к уроку, на котором задано.
+    Домашнее задание. Обычно крепится к уроку, на котором задано, но урок
+    необязателен: задать что-то можно и между занятиями.
+
+    Отсюда два поля, которых раньше не было. `teacher` хранится всегда — по
+    нему проверяются права, и выводить его из урока больше нельзя. `students`
+    заполняется только у заданий без урока: пока урок есть, адресаты берутся
+    из него, чтобы добавленный на занятие ученик видел домашку, как и прежде.
+    Что из двух в силе, решает `student_set`.
 
     Срок можно задать явно; пустой `due_at` означает «до следующего урока» и
     считается на лету (см. next_lesson_at в сериализаторе). Так перенос
@@ -161,9 +168,25 @@ class Homework(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     lesson = models.ForeignKey(
         Lesson,
+        null=True,
+        blank=True,
         on_delete=models.CASCADE,
         related_name='homework',
         verbose_name='Урок',
+        help_text='Можно не указывать: задание не обязано быть привязано к занятию.',
+    )
+    teacher = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='assigned_homework',
+        verbose_name='Преподаватель',
+    )
+    students = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name='personal_homework',
+        verbose_name='Кому задано',
+        help_text='Только для заданий без урока: с уроком адресаты берутся из него.',
     )
     text = models.TextField(blank=True, verbose_name='Задание')
     attachment = models.FileField(
@@ -186,7 +209,23 @@ class Homework(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        return f'ДЗ к уроку {self.lesson}'
+        if self.lesson_id:
+            return f'ДЗ к уроку {self.lesson}'
+        return f'ДЗ от {self.created_at:%d.%m.%Y}' if self.created_at else 'ДЗ без урока'
+
+    @property
+    def student_set(self):
+        """
+        Кому задано: участники урока, а без урока — перечисленные явно.
+        Всегда менеджер, чтобы вызывающему не приходилось знать, откуда взято.
+        """
+        return self.lesson.students if self.lesson_id else self.students
+
+    def is_participant(self, user):
+        """Преподаватель задания или тот, кому оно задано."""
+        if not user or not user.is_authenticated:
+            return False
+        return self.teacher_id == user.id or self.student_set.filter(pk=user.pk).exists()
 
 
 class HomeworkSubmission(models.Model):
