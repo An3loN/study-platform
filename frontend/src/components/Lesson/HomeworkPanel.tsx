@@ -167,23 +167,14 @@ export function HomeworkPanel({ lesson, isTeacher, selfId, onChanged }: Props) {
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <label
-              className="hw-btn-quiet"
+              className={`date-pill${dueAt ? ' date-pill--set' : ''}`}
               title="Пусто — до следующего урока"
-              style={{ height: 36, gap: 6, color: dueAt ? 'var(--sky-700)' : 'var(--ink-600)' }}
             >
               <Icon name="calendar" size={15} />
               <input
                 type="datetime-local"
                 value={dueAt}
                 onChange={(event) => setDueAt(event.target.value)}
-                style={{
-                  width: 148,
-                  padding: 0,
-                  border: 'none',
-                  background: 'transparent',
-                  font: '500 12px/1 var(--font-mono)',
-                  color: 'inherit',
-                }}
               />
             </label>
             <input

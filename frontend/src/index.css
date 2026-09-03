@@ -75,7 +75,11 @@ h1, h2, h3, h4 {
 a { color: var(--sky-600); text-decoration: none; }
 a:hover { color: var(--sky-700); text-decoration: underline; }
 
-a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+/* Полям ввода обводка не нужна: фокус на них и так виден по рамке и кольцу
+   (см. :focus ниже). Две подсветки разом только спорят друг с другом, а на
+   поле без своих отступов — например, на дате в узкой плашке — обводка ещё и
+   наезжает на само значение. */
+a:focus-visible, button:focus-visible {
   outline: 2px solid var(--sky-500);
   outline-offset: 2px;
 }
@@ -741,6 +745,57 @@ input:focus, textarea:focus, select:focus {
 }
 .hw-btn-accept:hover:not(:disabled) { background: var(--aqua-400); }
 .hw-btn-accept:active:not(:disabled) { transform: translateY(2px); box-shadow: none; }
+
+/* Срок сдачи — плашка-кнопка с календарём из макета.
+   У поля даты есть своя кнопка календаря, и рядом с нашей иконкой их было
+   две. Штатную не прячем совсем — она открывает системный календарь, — а
+   растягиваем прозрачной поверх всей плашки: иконка остаётся одна, а нажатие
+   в любом месте по-прежнему открывает выбор даты. */
+.date-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--ink-200);
+  border-radius: var(--radius-control);
+  background: var(--ink-0);
+  color: var(--ink-600);
+  font: 600 12.5px/1 var(--font-ui);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out);
+}
+.date-pill:hover { background: var(--ink-50); }
+.date-pill:focus-within { border-color: var(--sky-400); box-shadow: var(--ring-focus); }
+/* Срок задан — плашка становится «небесной», как в макете */
+.date-pill--set {
+  border-color: var(--sky-200);
+  background: var(--sky-50);
+  color: var(--sky-700);
+}
+.date-pill--set:hover { background: var(--sky-100); }
+.date-pill input {
+  width: 148px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: 500 12px/1 var(--font-mono);
+  color: inherit;
+}
+.date-pill input:focus { border: 0; box-shadow: none; }
+.date-pill input::-webkit-calendar-picker-indicator {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+}
 
 /* Кнопка-строка: только рамка и текст, без заливки */
 .hw-btn-quiet {
