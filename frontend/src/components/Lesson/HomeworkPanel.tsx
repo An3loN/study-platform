@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { HomeworkChat } from './HomeworkChat'
 import { homeworkApi } from '@/services/api'
 import { SUBMISSION_LABEL, type Homework, type HomeworkSubmission, type LessonDetail } from '@/types'
@@ -39,6 +39,14 @@ export function HomeworkPanel({ lesson, isTeacher, selfId, onChanged }: Props) {
   const [items, setItems] = useState<Homework[]>(lesson.homework)
   const [openChat, setOpenChat] = useState<string | null>(null)
   const [grades, setGrades] = useState<Record<string, string>>({})
+
+  /**
+   * Панель живёт во вкладке, а вкладка при скрытии размонтируется — вместе с
+   * локальным состоянием. Поэтому список синхронизируется с уроком, а не
+   * копируется один раз при монтировании: иначе после «скрыл и открыл» на
+   * экране оказывались данные на момент открытия страницы.
+   */
+  useEffect(() => { setItems(lesson.homework) }, [lesson.homework])
 
   const reload = async () => {
     const { data } = await homeworkApi.forLesson(lesson.id)
@@ -84,6 +92,9 @@ export function HomeworkPanel({ lesson, isTeacher, selfId, onChanged }: Props) {
   const toggleDone = async (item: Homework) => {
     const { data } = await homeworkApi.setDone(item.id, !item.mySubmission?.isDone)
     replace(data)
+    // Урок в родителе тоже должен узнать: панель переживает размонтирование
+    // вкладки только через него
+    onChanged()
   }
 
   const review = async (item: Homework, studentId: string, accepted: boolean) => {
@@ -94,6 +105,7 @@ export function HomeworkPanel({ lesson, isTeacher, selfId, onChanged }: Props) {
       grade: accepted && raw ? Number(raw) : null,
     })
     replace(data)
+    onChanged()
   }
 
   return (
