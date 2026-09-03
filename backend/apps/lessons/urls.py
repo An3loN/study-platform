@@ -10,6 +10,8 @@ from .views import (
     HomeworkListCreateView,
     HomeworkDetailView,
     HomeworkDoneView,
+    HomeworkReviewView,
+    HomeworkMessageListCreateView,
     MyHomeworkListView,
 )
 
@@ -32,4 +34,6 @@ homework_urlpatterns = [
     path('', MyHomeworkListView.as_view(), name='homework-list'),
     path('<uuid:pk>/', HomeworkDetailView.as_view(), name='homework-detail'),
     path('<uuid:pk>/done/', HomeworkDoneView.as_view(), name='homework-done'),
+    path('<uuid:pk>/review/', HomeworkReviewView.as_view(), name='homework-review'),
+    path('<uuid:pk>/messages/', HomeworkMessageListCreateView.as_view(), name='homework-messages'),
 ]

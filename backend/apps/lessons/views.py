@@ -12,13 +12,14 @@ from rest_framework_simplejwt.tokens import AccessToken
 
 from apps.common.qr import qr_svg_response
 from apps.users.permissions import IsTeacher
-from .models import Lesson, Homework
+from .models import Lesson, Homework, HomeworkSubmission
 from .serializers import (
     LessonListSerializer,
     LessonDetailSerializer,
     LessonWriteSerializer,
     LessonShareSerializer,
     HomeworkSerializer,
+    HomeworkMessageSerializer,
 )
 
 GUEST_TOKEN_LIFETIME = timedelta(hours=12)
@@ -247,7 +248,7 @@ class HomeworkListCreateView(generics.ListCreateAPIView):
         return lesson
 
     def get_queryset(self):
-        return self.get_lesson().homework.prefetch_related('completed_by')
+        return self.get_lesson().homework.prefetch_related('submissions__student', 'messages')
 
     def perform_create(self, serializer):
         lesson = self.get_lesson()
@@ -263,7 +264,7 @@ class HomeworkDetailView(generics.RetrieveUpdateDestroyAPIView):
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
-        return Homework.objects.select_related('lesson').prefetch_related('completed_by')
+        return Homework.objects.select_related('lesson').prefetch_related('submissions__student', 'messages')
 
     def get_object(self):
         homework = get_object_or_404(self.get_queryset(), pk=self.kwargs['pk'])
@@ -275,21 +276,122 @@ class HomeworkDetailView(generics.RetrieveUpdateDestroyAPIView):
         return homework
 
 
+def get_homework_for(user, pk, teacher_only=False):
+    """Задание, если пользователь имеет к нему отношение."""
+    homework = get_object_or_404(
+        Homework.objects.select_related('lesson').prefetch_related('submissions__student'),
+        pk=pk,
+    )
+    if teacher_only:
+        if homework.lesson.teacher_id != user.id:
+            raise exceptions.PermissionDenied('Это может только преподаватель.')
+    elif not homework.lesson.is_participant(user):
+        raise exceptions.PermissionDenied('Нет доступа к заданию.')
+    return homework
+
+
 class HomeworkDoneView(APIView):
-    """Ученик отмечает задание выполненным (и может снять отметку)."""
+    """
+    Ученик отмечает задание выполненным или снимает отметку.
+    Отметка — заявка на проверку, а не приёмка: принимает преподаватель.
+    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk):
-        homework = get_object_or_404(Homework.objects.select_related('lesson'), pk=pk)
-        if not homework.lesson.is_participant(request.user):
-            return Response(status=status.HTTP_403_FORBIDDEN)
+        homework = get_homework_for(request.user, pk)
 
         done = bool(request.data.get('done', True))
+        submission, _ = HomeworkSubmission.objects.get_or_create(
+            homework=homework, student=request.user,
+        )
+        submission.is_done = done
+        submission.done_at = timezone.now() if done else None
         if done:
-            homework.completed_by.add(request.user)
+            # Отметил заново — значит поправки внесены
+            submission.revision_requested_at = None
         else:
-            homework.completed_by.remove(request.user)
+            # Снял отметку сам — приёмка больше не актуальна
+            submission.accepted_at = None
+        submission.save()
+
+        homework.refresh_from_db()
         return Response(HomeworkSerializer(homework, context={'request': request}).data)
+
+
+class HomeworkReviewView(APIView):
+    """
+    Преподаватель принимает работу или отправляет на поправки.
+
+    Приёмка может нести оценку по пятибалльной шкале — необязательную:
+    отметить «сделано» и не ставить балл это нормальный исход.
+    Требование поправок снимает отметку ученика, чтобы он проставил её заново,
+    когда исправит.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        homework = get_homework_for(request.user, pk, teacher_only=True)
+
+        student_id = request.data.get('student')
+        if not student_id:
+            return Response({'detail': 'Не указан ученик.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not homework.lesson.students.filter(pk=student_id).exists():
+            return Response({'detail': 'Этот ученик не на уроке.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        accepted = bool(request.data.get('accepted', False))
+        grade = request.data.get('grade')
+        if grade not in (None, ''):
+            try:
+                grade = int(grade)
+            except (TypeError, ValueError):
+                return Response({'detail': 'Оценка должна быть числом.'}, status=status.HTTP_400_BAD_REQUEST)
+            if not 1 <= grade <= 5:
+                return Response({'detail': 'Оценка — от 1 до 5.'}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            grade = None
+
+        submission, _ = HomeworkSubmission.objects.get_or_create(
+            homework=homework, student_id=student_id,
+        )
+
+        if accepted:
+            submission.accepted_at = timezone.now()
+            submission.revision_requested_at = None
+            submission.grade = grade
+            # Принято — значит сделано, даже если ученик забыл отметить
+            submission.is_done = True
+        else:
+            submission.accepted_at = None
+            submission.revision_requested_at = timezone.now()
+            submission.is_done = False
+            submission.done_at = None
+        submission.save()
+
+        homework.refresh_from_db()
+        return Response(HomeworkSerializer(homework, context={'request': request}).data)
+
+
+class HomeworkMessageListCreateView(generics.ListCreateAPIView):
+    """
+    Обсуждение задания: вопросы, готовые работы файлами, замечания.
+    Доступно участникам урока — и преподавателю, и ученикам.
+    """
+    serializer_class = HomeworkMessageSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    pagination_class = None
+
+    def get_homework(self):
+        return get_homework_for(self.request.user, self.kwargs['pk'])
+
+    def get_queryset(self):
+        return self.get_homework().messages.select_related('author')
+
+    def perform_create(self, serializer):
+        homework = self.get_homework()
+        if not serializer.validated_data.get('text', '').strip() and not self.request.FILES.get('attachment'):
+            raise exceptions.ValidationError({'detail': 'Пустое сообщение отправлять некуда.'})
+        serializer.save(homework=homework, author=self.request.user)
 
 
 class MyHomeworkListView(generics.ListAPIView):
@@ -302,6 +404,6 @@ class MyHomeworkListView(generics.ListAPIView):
             Homework.objects
             .filter(lesson__in=lessons_for(self.request.user))
             .select_related('lesson')
-            .prefetch_related('completed_by', 'lesson__students')
+            .prefetch_related('submissions__student', 'messages', 'lesson__students')
             .distinct()
         )

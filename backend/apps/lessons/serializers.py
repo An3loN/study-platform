@@ -3,7 +3,7 @@ from rest_framework import serializers
 
 from apps.users.models import User
 from apps.users.serializers import UserPublicSerializer
-from .models import Lesson, Homework
+from .models import Lesson, Homework, HomeworkSubmission, HomeworkMessage
 
 
 def next_lesson_at(homework, student=None):
@@ -32,35 +32,70 @@ def next_lesson_at(homework, student=None):
     return following.scheduled_at if following else None
 
 
+class HomeworkMessageSerializer(serializers.ModelSerializer):
+    """Сообщение в обсуждении задания."""
+    author = UserPublicSerializer(read_only=True)
+
+    class Meta:
+        model = HomeworkMessage
+        fields = ['id', 'author', 'text', 'attachment', 'created_at']
+        read_only_fields = ['id', 'author', 'created_at']
+
+
+class HomeworkSubmissionSerializer(serializers.ModelSerializer):
+    """Как идут дела у одного ученика: его отметка, приёмка и оценка."""
+    student = UserPublicSerializer(read_only=True)
+    status = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = HomeworkSubmission
+        fields = ['id', 'student', 'status', 'is_done', 'grade', 'accepted_at', 'revision_requested_at']
+        read_only_fields = fields
+
+
 class HomeworkSerializer(serializers.ModelSerializer):
     lesson_title = serializers.SerializerMethodField()
     lesson_scheduled_at = serializers.DateTimeField(source='lesson.scheduled_at', read_only=True)
-    due_at = serializers.SerializerMethodField()
-    is_done = serializers.SerializerMethodField()
-    done_by = serializers.SerializerMethodField()
+    due_at = serializers.DateTimeField(required=False, allow_null=True)
+    effective_due_at = serializers.SerializerMethodField()
+    submissions = serializers.SerializerMethodField()
+    my_submission = serializers.SerializerMethodField()
+    messages_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Homework
         fields = [
             'id', 'lesson', 'lesson_title', 'lesson_scheduled_at', 'text', 'attachment',
-            'due_at', 'is_done', 'done_by', 'created_at',
+            'due_at', 'effective_due_at', 'submissions', 'my_submission', 'messages_count',
+            'created_at',
         ]
         read_only_fields = ['id', 'lesson', 'created_at']
 
     def get_lesson_title(self, obj):
         return str(obj.lesson)
 
-    def get_due_at(self, obj):
+    def get_effective_due_at(self, obj):
+        """
+        Срок, который показываем. Заданный вручную побеждает; пока его нет —
+        считаем по следующему уроку, и тогда перенос занятия двигает срок.
+        """
+        if obj.due_at:
+            return obj.due_at
         user = self.context['request'].user
         student = user if getattr(user, 'is_student', False) else None
         return next_lesson_at(obj, student)
 
-    def get_is_done(self, obj):
-        user = self.context['request'].user
-        return obj.completed_by.filter(pk=user.pk).exists()
+    def get_submissions(self, obj):
+        """Всем участникам урока: у кого что со сдачей."""
+        return HomeworkSubmissionSerializer(obj.submissions.all(), many=True).data
 
-    def get_done_by(self, obj):
-        return UserPublicSerializer(obj.completed_by.all(), many=True).data
+    def get_my_submission(self, obj):
+        user = self.context['request'].user
+        submission = next((s for s in obj.submissions.all() if s.student_id == user.id), None)
+        return HomeworkSubmissionSerializer(submission).data if submission else None
+
+    def get_messages_count(self, obj):
+        return obj.messages.count()
 
 
 class LessonListSerializer(serializers.ModelSerializer):

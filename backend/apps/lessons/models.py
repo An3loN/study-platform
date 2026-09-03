@@ -2,6 +2,7 @@ import uuid
 from datetime import timedelta
 
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -152,7 +153,10 @@ class Lesson(models.Model):
 class Homework(models.Model):
     """
     Домашнее задание крепится к уроку, на котором задано.
-    Срок — следующий урок ученика (считается на лету, см. сериализатор).
+
+    Срок можно задать явно; пустой `due_at` означает «до следующего урока» и
+    считается на лету (см. next_lesson_at в сериализаторе). Так перенос
+    следующего занятия двигает срок вместе с собой, пока его не зафиксировали.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     lesson = models.ForeignKey(
@@ -168,11 +172,11 @@ class Homework(models.Model):
         blank=True,
         verbose_name='Файл',
     )
-    completed_by = models.ManyToManyField(
-        settings.AUTH_USER_MODEL,
-        related_name='completed_homework',
+    due_at = models.DateTimeField(
+        null=True,
         blank=True,
-        verbose_name='Отметили выполненным',
+        verbose_name='Сдать до',
+        help_text='Пусто — до следующего урока.',
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -183,3 +187,100 @@ class Homework(models.Model):
 
     def __str__(self):
         return f'ДЗ к уроку {self.lesson}'
+
+
+class HomeworkSubmission(models.Model):
+    """
+    Как у конкретного ученика идут дела с этим заданием.
+
+    Отметка ученика и подтверждение преподавателя — разные вещи и живут в
+    разных полях: «я сделал» не то же самое, что «принято». Требование
+    поправок снимает отметку ученика, и он отмечает заново, когда исправит.
+    """
+    STATUS_PENDING = 'pending'
+    STATUS_SUBMITTED = 'submitted'
+    STATUS_REVISION = 'revision'
+    STATUS_ACCEPTED = 'accepted'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    homework = models.ForeignKey(
+        Homework,
+        on_delete=models.CASCADE,
+        related_name='submissions',
+        verbose_name='Задание',
+    )
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='homework_submissions',
+        verbose_name='Ученик',
+    )
+
+    is_done = models.BooleanField(default=False, verbose_name='Ученик отметил выполненным')
+    done_at = models.DateTimeField(null=True, blank=True, verbose_name='Когда отметил')
+    accepted_at = models.DateTimeField(null=True, blank=True, verbose_name='Принято преподавателем')
+    revision_requested_at = models.DateTimeField(null=True, blank=True, verbose_name='Запрошены поправки')
+    grade = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
+        verbose_name='Оценка',
+        help_text='По пятибалльной шкале. Необязательна.',
+    )
+
+    class Meta:
+        verbose_name = 'Сдача домашнего задания'
+        verbose_name_plural = 'Сдачи домашних заданий'
+        constraints = [
+            models.UniqueConstraint(fields=['homework', 'student'], name='unique_submission_per_student'),
+        ]
+
+    def __str__(self):
+        return f'{self.student} — {self.homework}'
+
+    @property
+    def status(self):
+        if self.accepted_at:
+            return self.STATUS_ACCEPTED
+        if self.is_done:
+            return self.STATUS_SUBMITTED
+        if self.revision_requested_at:
+            return self.STATUS_REVISION
+        return self.STATUS_PENDING
+
+
+class HomeworkMessage(models.Model):
+    """
+    Обсуждение задания: вопросы ученика, готовые работы файлами, замечания
+    преподавателя. Отдельная ветка на каждое задание — разговор о конкретной
+    работе не должен теряться в общей переписке.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    homework = models.ForeignKey(
+        Homework,
+        on_delete=models.CASCADE,
+        related_name='messages',
+        verbose_name='Задание',
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='homework_messages',
+        verbose_name='Автор',
+    )
+    text = models.TextField(blank=True, verbose_name='Сообщение')
+    attachment = models.FileField(
+        upload_to='homework/messages/%Y/%m/',
+        null=True,
+        blank=True,
+        verbose_name='Файл',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Сообщение по заданию'
+        verbose_name_plural = 'Сообщения по заданиям'
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f'{self.author}: {self.text[:40]}'

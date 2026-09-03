@@ -1,7 +1,7 @@
 import axios from 'axios'
 import type {
   User, Student, StudentInput, Lesson, LessonDetail, LessonInput, LessonShare,
-  GuestSession, Homework, InviteInfo, Paginated,
+  GuestSession, Homework, HomeworkMessage, InviteInfo, Paginated,
 } from '@/types'
 
 // ── snake_case ↔ camelCase ───────────────────────────────────────────────────
@@ -158,13 +158,29 @@ export const lessonsApi = {
 export const homeworkApi = {
   my: () => http.get<Paginated<Homework>>('/homework/'),
   forLesson: (lessonId: string) => http.get<Paginated<Homework>>(`/lessons/${lessonId}/homework/`),
-  create: (lessonId: string, data: { text: string; attachment?: File | null }) => {
+  create: (lessonId: string, data: { text: string; attachment?: File | null; dueAt?: string | null }) => {
     const form = new FormData()
     form.append('text', data.text)
     if (data.attachment) form.append('attachment', data.attachment)
+    if (data.dueAt) form.append('due_at', data.dueAt)
     return http.post<Homework>(`/lessons/${lessonId}/homework/`, form)
   },
-  update: (id: string, data: { text: string }) => http.patch<Homework>(`/homework/${id}/`, data),
+  update: (id: string, data: { text?: string; dueAt?: string | null }) =>
+    http.patch<Homework>(`/homework/${id}/`, data),
   remove: (id: string) => http.delete(`/homework/${id}/`),
+
+  /** Отметка ученика: «я сделал». Приёмка — отдельное действие преподавателя */
   setDone: (id: string, done: boolean) => http.post<Homework>(`/homework/${id}/done/`, { done }),
+
+  /** Преподаватель принимает работу (можно с оценкой) или просит поправки */
+  review: (id: string, data: { student: string; accepted: boolean; grade?: number | null }) =>
+    http.post<Homework>(`/homework/${id}/review/`, data),
+
+  messages: (id: string) => http.get<HomeworkMessage[]>(`/homework/${id}/messages/`),
+  sendMessage: (id: string, data: { text: string; attachment?: File | null }) => {
+    const form = new FormData()
+    form.append('text', data.text)
+    if (data.attachment) form.append('attachment', data.attachment)
+    return http.post<HomeworkMessage>(`/homework/${id}/messages/`, form)
+  },
 }

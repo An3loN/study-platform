@@ -39,6 +39,34 @@ export interface StudentInput {
   password?: string
 }
 
+/** pending — не сдано, submitted — ученик отметил, revision — нужны поправки */
+export type SubmissionStatus = 'pending' | 'submitted' | 'revision' | 'accepted'
+
+export const SUBMISSION_LABEL: Record<SubmissionStatus, string> = {
+  pending: 'Не сдано',
+  submitted: 'Ждёт проверки',
+  revision: 'Нужны поправки',
+  accepted: 'Принято',
+}
+
+export interface HomeworkSubmission {
+  id: string
+  student: UserPublic
+  status: SubmissionStatus
+  isDone: boolean
+  grade: number | null
+  acceptedAt: string | null
+  revisionRequestedAt: string | null
+}
+
+export interface HomeworkMessage {
+  id: string
+  author: UserPublic
+  text: string
+  attachment: string | null
+  createdAt: string
+}
+
 export interface Homework {
   id: string
   lesson: string
@@ -46,10 +74,14 @@ export interface Homework {
   lessonScheduledAt: string | null
   text: string
   attachment: string | null
-  /** Следующий урок после того, на котором задано */
+  /** Заданный вручную срок. null — до следующего урока */
   dueAt: string | null
-  isDone: boolean
-  doneBy: UserPublic[]
+  /** Срок, который показываем: заданный вручную или следующий урок */
+  effectiveDueAt: string | null
+  submissions: HomeworkSubmission[]
+  /** Своя сдача — у преподавателя всегда null */
+  mySubmission: HomeworkSubmission | null
+  messagesCount: number
   createdAt: string
 }
 

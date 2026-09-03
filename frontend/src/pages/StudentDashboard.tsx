@@ -4,8 +4,16 @@ import { Layout } from '@/components/UI/Layout'
 import { CancelLessonModal } from '@/components/Lesson/CancelLessonModal'
 import { Menu } from '@/components/UI/Menu'
 import { lessonsApi, homeworkApi } from '@/services/api'
-import type { Homework, Lesson } from '@/types'
+import { SUBMISSION_LABEL, type Homework, type Lesson, type SubmissionStatus } from '@/types'
 import { STATUS_LABEL, formatDateTime, formatDuration, lessonTitle } from '@/utils/format'
+
+/** Цвета статусов сдачи — те же, что в панели задания на странице урока */
+const SUBMISSION_BADGE: Record<SubmissionStatus, { background: string; color: string }> = {
+  pending: { background: 'var(--ink-100)', color: 'var(--ink-600)' },
+  submitted: { background: 'var(--sun-50)', color: 'var(--sun-600)' },
+  revision: { background: 'var(--coral-50)', color: 'var(--coral-600)' },
+  accepted: { background: 'var(--aqua-50)', color: 'var(--aqua-600)' },
+}
 
 export function StudentDashboard() {
   const [lessons, setLessons] = useState<Lesson[]>([])
@@ -27,7 +35,7 @@ export function StudentDashboard() {
   useEffect(() => { load() }, [load])
 
   const toggleDone = async (item: Homework) => {
-    const { data } = await homeworkApi.setDone(item.id, !item.isDone)
+    const { data } = await homeworkApi.setDone(item.id, !item.mySubmission?.isDone)
     setHomework((prev) => prev.map((h) => (h.id === data.id ? data : h)))
   }
 
@@ -100,15 +108,15 @@ export function StudentDashboard() {
               <div key={item.id} className="card" style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                 <input
                   type="checkbox"
-                  checked={item.isDone}
+                  checked={Boolean(item.mySubmission?.isDone)}
                   onChange={() => toggleDone(item)}
                   style={{ width: 18, height: 18, marginTop: 2, flexShrink: 0 }}
                 />
                 <div style={{ flex: 1 }}>
                   <p style={{
                     whiteSpace: 'pre-wrap',
-                    textDecoration: item.isDone ? 'line-through' : 'none',
-                    color: item.isDone ? 'var(--color-text-secondary)' : 'var(--color-text)',
+                    textDecoration: item.mySubmission?.status === 'accepted' ? 'line-through' : 'none',
+                    color: item.mySubmission?.isDone ? 'var(--color-text-secondary)' : 'var(--color-text)',
                   }}>
                     {item.text || 'Без описания'}
                   </p>
@@ -119,8 +127,16 @@ export function StudentDashboard() {
                   )}
                   <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 6 }}>
                     Задано на уроке {formatDateTime(item.lessonScheduledAt)}
-                    {item.dueAt && ` · сдать к ${formatDateTime(item.dueAt)}`}
+                    {item.effectiveDueAt && ` · сдать к ${formatDateTime(item.effectiveDueAt)}`}
                   </p>
+                  {item.mySubmission && (
+                    <p style={{ fontSize: 12, marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span className="badge" style={SUBMISSION_BADGE[item.mySubmission.status]}>
+                        {SUBMISSION_LABEL[item.mySubmission.status]}
+                      </span>
+                      {item.mySubmission.grade && <span>Оценка {item.mySubmission.grade}</span>}
+                    </p>
+                  )}
                 </div>
               </div>
             ))}
