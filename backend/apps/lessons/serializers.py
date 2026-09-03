@@ -1,3 +1,4 @@
+from django.db.models import F
 from rest_framework import serializers
 
 from apps.users.models import User
@@ -87,11 +88,13 @@ class LessonDetailSerializer(LessonListSerializer):
     notes = serializers.SerializerMethodField()
     share_url = serializers.SerializerMethodField()
     share_token = serializers.SerializerMethodField()
+    previous_notes = serializers.SerializerMethodField()
     homework = HomeworkSerializer(many=True, read_only=True)
 
     class Meta(LessonListSerializer.Meta):
         fields = LessonListSerializer.Meta.fields + [
             'teacher', 'room_id', 'notes', 'share_url', 'share_token', 'homework',
+            'previous_notes',
         ]
 
     def _is_teacher(self, obj):
@@ -100,6 +103,47 @@ class LessonDetailSerializer(LessonListSerializer):
 
     def get_notes(self, obj):
         return obj.notes if self._is_teacher(obj) else None
+
+    def get_previous_notes(self, obj):
+        """
+        Заметки с прошлых занятий — чтобы не вспоминать по памяти, на чём
+        остановились. Берём уроки с теми же учениками: заметки по другому
+        ученику здесь только мешали бы.
+
+        Уроки без заметок пропускаем: пустая строка в списке ничего не говорит,
+        а место занимает. Поэтому «последние три» — это три последних, где
+        действительно что-то записано.
+        """
+        if not self._is_teacher(obj):
+            return []
+
+        lessons = (
+            Lesson.objects
+            .filter(teacher_id=obj.teacher_id)
+            .exclude(pk=obj.pk)
+            .exclude(notes='')
+        )
+
+        student_ids = [student.id for student in obj.students.all()]
+        if student_ids:
+            lessons = lessons.filter(students__id__in=student_ids).distinct()
+
+        # «Прошлые» — те, что раньше текущего. У урока без даты точки отсчёта
+        # нет, поэтому просто показываем последние записанные.
+        if obj.scheduled_at:
+            lessons = lessons.filter(scheduled_at__lt=obj.scheduled_at)
+
+        lessons = lessons.order_by(F('scheduled_at').desc(nulls_last=True), '-created_at')[:3]
+
+        return [
+            {
+                'id': str(lesson.pk),
+                'title': lesson.title,
+                'scheduled_at': lesson.scheduled_at,
+                'notes': lesson.notes,
+            }
+            for lesson in lessons
+        ]
 
     def get_share_token(self, obj):
         # Без доски вход по ссылке некуда вести — не отдаём её вовсе

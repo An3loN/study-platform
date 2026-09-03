@@ -71,6 +71,14 @@ export interface Lesson {
   hasWhiteboard: boolean
 }
 
+/** Заметка с прошлого занятия — только для преподавателя */
+export interface PreviousNote {
+  id: string
+  title: string
+  scheduledAt: string | null
+  notes: string
+}
+
 export interface LessonDetail extends Lesson {
   teacher: UserPublic
   roomId: string
@@ -79,6 +87,8 @@ export interface LessonDetail extends Lesson {
   shareUrl: string | null
   shareToken: string | null
   homework: Homework[]
+  /** Заметки с трёх последних занятий с теми же учениками */
+  previousNotes: PreviousNote[]
 }
 
 export interface LessonInput {

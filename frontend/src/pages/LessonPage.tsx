@@ -83,7 +83,14 @@ export function LessonPage() {
               <path d="M15 3v6h6" />
             </svg>
           ),
-          render: () => <LessonNotes lessonId={lesson.id} value={lesson.notes ?? ''} onSaved={load} />,
+          render: () => (
+            <LessonNotes
+              lessonId={lesson.id}
+              value={lesson.notes ?? ''}
+              previous={lesson.previousNotes}
+              onSaved={load}
+            />
+          ),
         }]
       : []),
     {
