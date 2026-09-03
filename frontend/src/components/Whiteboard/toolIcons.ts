@@ -31,8 +31,8 @@ export const TOOL_ICON_PATHS: Record<string, string> = {
     '<rect width="20" height="20" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/>'
     + '<path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
   laser:
-    '<path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/>'
-    + '<path d="M17.8 11.8 19 13"/><path d="M17.8 6.2 19 5"/><path d="m3 21 9-9"/><path d="M12.2 6.2 11 5"/>',
+    '<path d="m3 21 8-8"/><circle cx="16.5" cy="7.5" r="2.5"/><path d="M16.5 2v1.5"/>'
+    + '<path d="M16.5 11.5V13"/><path d="M10.5 7.5H12"/><path d="M21 7.5h1.5"/>',
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"/>',
   redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13"/>',
   zoomOut: '<path d="M5 12h14"/>',

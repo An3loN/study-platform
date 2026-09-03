@@ -33,5 +33,7 @@ class HomeworkAdmin(admin.ModelAdmin):
 
 @admin.register(HomeworkMessage)
 class HomeworkMessageAdmin(admin.ModelAdmin):
-    list_display = ['homework', 'author', 'created_at']
+    # student — чья это ветка, а не кто написал: без него в админке не понять,
+    # к какой из переписок относится сообщение преподавателя
+    list_display = ['homework', 'student', 'author', 'created_at']
     readonly_fields = ['created_at']

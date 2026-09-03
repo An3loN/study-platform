@@ -32,30 +32,86 @@ def next_lesson_at(homework, student=None):
     return following.scheduled_at if following else None
 
 
+def thread_messages(homework, student_id):
+    """
+    Ветка обсуждения по паре «задание + ученик». Сообщения без ветки — те,
+    что написаны до её появления, — показываем в любой: адресата у них нет.
+    """
+    return [
+        message for message in homework.messages.all()
+        if message.student_id in (student_id, None)
+    ]
+
+
+def attachment_url(message, request):
+    if not message.attachment:
+        return None
+    url = message.attachment.url
+    return request.build_absolute_uri(url) if request else url
+
+
 class HomeworkMessageSerializer(serializers.ModelSerializer):
     """Сообщение в обсуждении задания."""
     author = UserPublicSerializer(read_only=True)
+    # Имя файла показываем как есть: «216-новое.jpg» говорит больше, чем «файл»
+    attachment_name = serializers.SerializerMethodField()
 
     class Meta:
         model = HomeworkMessage
-        fields = ['id', 'author', 'text', 'attachment', 'created_at']
+        fields = ['id', 'author', 'text', 'attachment', 'attachment_name', 'created_at']
         read_only_fields = ['id', 'author', 'created_at']
+
+    def get_attachment_name(self, obj):
+        return obj.attachment.name.rsplit('/', 1)[-1] if obj.attachment else None
 
 
 class HomeworkSubmissionSerializer(serializers.ModelSerializer):
-    """Как идут дела у одного ученика: его отметка, приёмка и оценка."""
+    """
+    Как идут дела у одного ученика: его отметка, приёмка, оценка — и то, что
+    он прислал. Работа отдельным полем не хранится: присланное живёт файлами
+    в его ветке обсуждения, поэтому собираем их оттуда.
+    """
     student = UserPublicSerializer(read_only=True)
     status = serializers.CharField(read_only=True)
+    files = serializers.SerializerMethodField()
+    messages_count = serializers.SerializerMethodField()
 
     class Meta:
         model = HomeworkSubmission
-        fields = ['id', 'student', 'status', 'is_done', 'grade', 'accepted_at', 'revision_requested_at']
+        fields = [
+            'id', 'student', 'status', 'is_done', 'done_at', 'grade',
+            'accepted_at', 'revision_requested_at', 'files', 'messages_count',
+        ]
         read_only_fields = fields
+
+    def _thread(self, obj):
+        return thread_messages(obj.homework, obj.student_id)
+
+    def get_files(self, obj):
+        """Файлы самого ученика — присланная работа. Файлы преподавателя это
+        замечания к ней, им в списке работ не место."""
+        request = self.context.get('request')
+        return [
+            {
+                'id': str(message.pk),
+                'url': attachment_url(message, request),
+                'name': message.attachment.name.rsplit('/', 1)[-1],
+                'created_at': message.created_at,
+            }
+            for message in self._thread(obj)
+            if message.attachment and message.author_id == obj.student_id
+        ]
+
+    def get_messages_count(self, obj):
+        return len(self._thread(obj))
 
 
 class HomeworkSerializer(serializers.ModelSerializer):
     lesson_title = serializers.SerializerMethodField()
     lesson_scheduled_at = serializers.DateTimeField(source='lesson.scheduled_at', read_only=True)
+    # Собеседник ученика в обсуждении — берём с урока, чтобы окно задания
+    # можно было открыть и там, где самого урока под рукой нет
+    teacher = UserPublicSerializer(source='lesson.teacher', read_only=True)
     due_at = serializers.DateTimeField(required=False, allow_null=True)
     effective_due_at = serializers.SerializerMethodField()
     submissions = serializers.SerializerMethodField()
@@ -65,7 +121,7 @@ class HomeworkSerializer(serializers.ModelSerializer):
     class Meta:
         model = Homework
         fields = [
-            'id', 'lesson', 'lesson_title', 'lesson_scheduled_at', 'text', 'attachment',
+            'id', 'lesson', 'lesson_title', 'lesson_scheduled_at', 'teacher', 'text', 'attachment',
             'due_at', 'effective_due_at', 'submissions', 'my_submission', 'messages_count',
             'created_at',
         ]
@@ -85,17 +141,48 @@ class HomeworkSerializer(serializers.ModelSerializer):
         student = user if getattr(user, 'is_student', False) else None
         return next_lesson_at(obj, student)
 
+    def _submission_for(self, obj, student):
+        """
+        Строка сдачи есть не у всех: она заводится, когда ученик первый раз
+        отметился или преподаватель первый раз проверил. «Ещё ничего не
+        прислал» — тоже состояние, и показать его надо, поэтому недостающие
+        достраиваем несохранёнными.
+        """
+        existing = next((s for s in obj.submissions.all() if s.student_id == student.id), None)
+        return existing or HomeworkSubmission(homework=obj, student=student)
+
     def get_submissions(self, obj):
-        """Всем участникам урока: у кого что со сдачей."""
-        return HomeworkSubmissionSerializer(obj.submissions.all(), many=True).data
+        """
+        Преподавателю — строка на каждого ученика урока, включая тех, кто
+        ничего не присылал. Ученику — только своя: чужие оценки и работы его
+        не касаются.
+        """
+        user = self.context['request'].user
+        students = list(obj.lesson.students.all())
+        if obj.lesson.teacher_id != user.id:
+            students = [student for student in students if student.id == user.id]
+        return HomeworkSubmissionSerializer(
+            [self._submission_for(obj, student) for student in students],
+            many=True,
+            context=self.context,
+        ).data
 
     def get_my_submission(self, obj):
         user = self.context['request'].user
         submission = next((s for s in obj.submissions.all() if s.student_id == user.id), None)
-        return HomeworkSubmissionSerializer(submission).data if submission else None
+        if submission is None and obj.lesson.students.filter(pk=user.pk).exists():
+            submission = HomeworkSubmission(homework=obj, student=user)
+        if submission is None:
+            return None
+        return HomeworkSubmissionSerializer(submission, context=self.context).data
 
     def get_messages_count(self, obj):
-        return obj.messages.count()
+        """Ученику считаем его ветку: чужие обсуждения он не видит и в счёт
+        их брать нельзя."""
+        user = self.context['request'].user
+        if obj.lesson.teacher_id == user.id:
+            return obj.messages.count()
+        return len(thread_messages(obj, user.id))
 
 
 class LessonListSerializer(serializers.ModelSerializer):

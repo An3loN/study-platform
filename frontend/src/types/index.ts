@@ -44,19 +44,32 @@ export type SubmissionStatus = 'pending' | 'submitted' | 'revision' | 'accepted'
 
 export const SUBMISSION_LABEL: Record<SubmissionStatus, string> = {
   pending: 'Не сдано',
-  submitted: 'Ждёт проверки',
+  submitted: 'На проверке',
   revision: 'Нужны поправки',
   accepted: 'Принято',
 }
 
-export interface HomeworkSubmission {
+/** Файл, присланный учеником в ветке задания — это и есть его работа */
+export interface HomeworkFile {
   id: string
+  url: string
+  name: string
+  createdAt: string
+}
+
+export interface HomeworkSubmission {
+  id: string | null
   student: UserPublic
   status: SubmissionStatus
   isDone: boolean
+  doneAt: string | null
   grade: number | null
   acceptedAt: string | null
   revisionRequestedAt: string | null
+  /** Что ученик прислал: файлы из его ветки обсуждения */
+  files: HomeworkFile[]
+  /** Сообщений в его ветке */
+  messagesCount: number
 }
 
 export interface HomeworkMessage {
@@ -64,6 +77,7 @@ export interface HomeworkMessage {
   author: UserPublic
   text: string
   attachment: string | null
+  attachmentName: string | null
   createdAt: string
 }
 
@@ -72,15 +86,19 @@ export interface Homework {
   lesson: string
   lessonTitle: string
   lessonScheduledAt: string | null
+  /** Преподаватель урока — собеседник ученика в обсуждении задания */
+  teacher: UserPublic
   text: string
   attachment: string | null
   /** Заданный вручную срок. null — до следующего урока */
   dueAt: string | null
   /** Срок, который показываем: заданный вручную или следующий урок */
   effectiveDueAt: string | null
+  /** Преподавателю — строка на каждого ученика урока, ученику — только своя */
   submissions: HomeworkSubmission[]
   /** Своя сдача — у преподавателя всегда null */
   mySubmission: HomeworkSubmission | null
+  /** Ученику — сообщения только его ветки */
   messagesCount: number
   createdAt: string
 }

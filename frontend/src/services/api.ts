@@ -165,6 +165,7 @@ export const homeworkApi = {
     if (data.dueAt) form.append('due_at', data.dueAt)
     return http.post<Homework>(`/lessons/${lessonId}/homework/`, form)
   },
+  get: (id: string) => http.get<Homework>(`/homework/${id}/`),
   update: (id: string, data: { text?: string; dueAt?: string | null }) =>
     http.patch<Homework>(`/homework/${id}/`, data),
   remove: (id: string) => http.delete(`/homework/${id}/`),
@@ -176,11 +177,19 @@ export const homeworkApi = {
   review: (id: string, data: { student: string; accepted: boolean; grade?: number | null }) =>
     http.post<Homework>(`/homework/${id}/review/`, data),
 
-  messages: (id: string) => http.get<HomeworkMessage[]>(`/homework/${id}/messages/`),
-  sendMessage: (id: string, data: { text: string; attachment?: File | null }) => {
+  /**
+   * Ветка обсуждения по паре «задание + ученик». Ученик всегда попадает
+   * в свою — параметр нужен только преподавателю, чтобы выбрать, с кем говорит.
+   */
+  messages: (id: string, student?: string) =>
+    http.get<HomeworkMessage[]>(`/homework/${id}/messages/`, {
+      params: student ? { student } : undefined,
+    }),
+  sendMessage: (id: string, data: { text: string; attachment?: File | null; student?: string }) => {
     const form = new FormData()
     form.append('text', data.text)
     if (data.attachment) form.append('attachment', data.attachment)
+    if (data.student) form.append('student', data.student)
     return http.post<HomeworkMessage>(`/homework/${id}/messages/`, form)
   },
 }

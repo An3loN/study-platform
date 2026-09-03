@@ -47,3 +47,15 @@ export function toLocalInput(value: string | null): string {
 export function fromLocalInput(value: string): string | null {
   return value ? new Date(value).toISOString() : null
 }
+
+/** 27 авг — день без времени и без года, если год текущий */
+export function formatDay(value: string | null): string {
+  if (!value) return '—'
+  const date = new Date(value)
+  const sameYear = date.getFullYear() === new Date().getFullYear()
+  return date.toLocaleDateString('ru-RU', {
+    day: 'numeric',
+    month: 'short',
+    year: sameYear ? undefined : 'numeric',
+  })
+}

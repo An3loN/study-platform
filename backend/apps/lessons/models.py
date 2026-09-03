@@ -252,8 +252,13 @@ class HomeworkSubmission(models.Model):
 class HomeworkMessage(models.Model):
     """
     Обсуждение задания: вопросы ученика, готовые работы файлами, замечания
-    преподавателя. Отдельная ветка на каждое задание — разговор о конкретной
-    работе не должен теряться в общей переписке.
+    преподавателя.
+
+    Ветка своя не просто у задания, а у пары «задание + ученик»: разбор чужой
+    работы одноклассникам видеть незачем, а преподавателю нужно говорить с
+    каждым отдельно. Поэтому `student` — не автор сообщения, а чья это ветка:
+    у сообщения ученика он совпадает с автором, у сообщения преподавателя
+    указывает, кому написали.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     homework = models.ForeignKey(
@@ -261,6 +266,17 @@ class HomeworkMessage(models.Model):
         on_delete=models.CASCADE,
         related_name='messages',
         verbose_name='Задание',
+    )
+    # Пусто только у сообщений, написанных до разделения на ветки: чья это
+    # переписка, задним числом уже не определить, поэтому такие показываем
+    # всем участникам — это честнее, чем угадать и спрятать.
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name='homework_threads',
+        verbose_name='Чья ветка',
     )
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL,

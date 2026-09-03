@@ -248,7 +248,7 @@ class HomeworkListCreateView(generics.ListCreateAPIView):
         return lesson
 
     def get_queryset(self):
-        return self.get_lesson().homework.prefetch_related('submissions__student', 'messages')
+        return self.get_lesson().homework.prefetch_related('submissions__student', 'messages', 'lesson__students')
 
     def perform_create(self, serializer):
         lesson = self.get_lesson()
@@ -264,7 +264,7 @@ class HomeworkDetailView(generics.RetrieveUpdateDestroyAPIView):
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
-        return Homework.objects.select_related('lesson').prefetch_related('submissions__student', 'messages')
+        return Homework.objects.select_related('lesson').prefetch_related('submissions__student', 'messages', 'lesson__students')
 
     def get_object(self):
         homework = get_object_or_404(self.get_queryset(), pk=self.kwargs['pk'])
@@ -279,7 +279,7 @@ class HomeworkDetailView(generics.RetrieveUpdateDestroyAPIView):
 def get_homework_for(user, pk, teacher_only=False):
     """Задание, если пользователь имеет к нему отношение."""
     homework = get_object_or_404(
-        Homework.objects.select_related('lesson').prefetch_related('submissions__student'),
+        Homework.objects.select_related('lesson').prefetch_related('submissions__student', 'messages', 'lesson__students'),
         pk=pk,
     )
     if teacher_only:
@@ -373,8 +373,10 @@ class HomeworkReviewView(APIView):
 
 class HomeworkMessageListCreateView(generics.ListCreateAPIView):
     """
-    Обсуждение задания: вопросы, готовые работы файлами, замечания.
-    Доступно участникам урока — и преподавателю, и ученикам.
+    Обсуждение задания — по одной ветке на ученика.
+
+    Ученик всегда попадает в свою и другой указать не может. Преподаватель
+    выбирает ветку параметром `student`: он говорит с каждым отдельно.
     """
     serializer_class = HomeworkMessageSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -384,14 +386,35 @@ class HomeworkMessageListCreateView(generics.ListCreateAPIView):
     def get_homework(self):
         return get_homework_for(self.request.user, self.kwargs['pk'])
 
+    def get_thread_student(self, homework):
+        """Чья ветка. Для ученика — своя, для преподавателя — из запроса."""
+        user = self.request.user
+        if homework.lesson.teacher_id != user.id:
+            return user.id
+
+        student_id = self.request.query_params.get('student') or self.request.data.get('student')
+        if not student_id:
+            raise exceptions.ValidationError({'detail': 'Не указан ученик.'})
+        if not homework.lesson.students.filter(pk=student_id).exists():
+            raise exceptions.ValidationError({'detail': 'Этот ученик не на уроке.'})
+        return student_id
+
     def get_queryset(self):
-        return self.get_homework().messages.select_related('author')
+        homework = self.get_homework()
+        student_id = self.get_thread_student(homework)
+        # Сообщения без ветки остались от общей переписки — показываем всем
+        return (
+            homework.messages
+            .filter(Q(student_id=student_id) | Q(student__isnull=True))
+            .select_related('author')
+        )
 
     def perform_create(self, serializer):
         homework = self.get_homework()
+        student_id = self.get_thread_student(homework)
         if not serializer.validated_data.get('text', '').strip() and not self.request.FILES.get('attachment'):
             raise exceptions.ValidationError({'detail': 'Пустое сообщение отправлять некуда.'})
-        serializer.save(homework=homework, author=self.request.user)
+        serializer.save(homework=homework, author=self.request.user, student_id=student_id)
 
 
 class MyHomeworkListView(generics.ListAPIView):

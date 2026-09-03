@@ -2,18 +2,13 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Layout } from '@/components/UI/Layout'
 import { CancelLessonModal } from '@/components/Lesson/CancelLessonModal'
+import { HomeworkModal } from '@/components/Lesson/HomeworkModal'
+import { StatusPill, aggregate } from '@/components/Lesson/homeworkParts'
 import { Menu } from '@/components/UI/Menu'
 import { lessonsApi, homeworkApi } from '@/services/api'
-import { SUBMISSION_LABEL, type Homework, type Lesson, type SubmissionStatus } from '@/types'
+import { useAuthStore } from '@/store/authStore'
+import type { Homework, Lesson } from '@/types'
 import { STATUS_LABEL, formatDateTime, formatDuration, lessonTitle } from '@/utils/format'
-
-/** Цвета статусов сдачи — те же, что в панели задания на странице урока */
-const SUBMISSION_BADGE: Record<SubmissionStatus, { background: string; color: string }> = {
-  pending: { background: 'var(--ink-100)', color: 'var(--ink-600)' },
-  submitted: { background: 'var(--sun-50)', color: 'var(--sun-600)' },
-  revision: { background: 'var(--coral-50)', color: 'var(--coral-600)' },
-  accepted: { background: 'var(--aqua-50)', color: 'var(--aqua-600)' },
-}
 
 export function StudentDashboard() {
   const [lessons, setLessons] = useState<Lesson[]>([])
@@ -21,6 +16,9 @@ export function StudentDashboard() {
   const [loading, setLoading] = useState(true)
   // Урок, для которого открыта отмена
   const [cancelling, setCancelling] = useState<Lesson | null>(null)
+  // Задание, открытое окном: работа, файлы и переписка с преподавателем
+  const [openHomework, setOpenHomework] = useState<string | null>(null)
+  const user = useAuthStore((s) => s.user)
 
   const load = useCallback(async () => {
     const [lessonsRes, homeworkRes] = await Promise.all([
@@ -34,9 +32,13 @@ export function StudentDashboard() {
 
   useEffect(() => { load() }, [load])
 
+  const replace = (updated: Homework) => {
+    setHomework((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
+  }
+
   const toggleDone = async (item: Homework) => {
     const { data } = await homeworkApi.setDone(item.id, !item.mySubmission?.isDone)
-    setHomework((prev) => prev.map((h) => (h.id === data.id ? data : h)))
+    replace(data)
   }
 
   return (
@@ -129,14 +131,18 @@ export function StudentDashboard() {
                     Задано на уроке {formatDateTime(item.lessonScheduledAt)}
                     {item.effectiveDueAt && ` · сдать к ${formatDateTime(item.effectiveDueAt)}`}
                   </p>
-                  {item.mySubmission && (
-                    <p style={{ fontSize: 12, marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span className="badge" style={SUBMISSION_BADGE[item.mySubmission.status]}>
-                        {SUBMISSION_LABEL[item.mySubmission.status]}
-                      </span>
-                      {item.mySubmission.grade && <span>Оценка {item.mySubmission.grade}</span>}
-                    </p>
-                  )}
+                  <p style={{ fontSize: 12, marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <StatusPill {...aggregate(item, false)} />
+                    {item.mySubmission?.grade && <span>Оценка {item.mySubmission.grade}</span>}
+                    {/* Разбор задания — там же, где и на уроке: файлы и переписка */}
+                    <button
+                      className="hw-btn-quiet"
+                      style={{ marginLeft: 'auto' }}
+                      onClick={() => setOpenHomework(item.id)}
+                    >
+                      Открыть{item.messagesCount > 0 && ` · ${item.messagesCount}`}
+                    </button>
+                  </p>
                 </div>
               </div>
             ))}
@@ -156,6 +162,21 @@ export function StudentDashboard() {
           onCancelled={load}
         />
       )}
+
+      {openHomework && (() => {
+        const item = homework.find((h) => h.id === openHomework)
+        return item ? (
+          <HomeworkModal
+            homework={item}
+            isTeacher={false}
+            selfId={user?.id}
+            teacherId={item.teacher.id}
+            teacherName={item.teacher.displayName}
+            onClose={() => setOpenHomework(null)}
+            onChanged={replace}
+          />
+        ) : null
+      })()}
     </Layout>
   )
 }
