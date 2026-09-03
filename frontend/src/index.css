@@ -329,6 +329,140 @@ input:focus, textarea:focus, select:focus {
   background: var(--sky-500);
 }
 
+/* ── Вход и регистрация ───────────────────────────────────────────────────── */
+/* Клетчатая бумага — единственная повторяющаяся текстура в фирменном стиле;
+   на входе она и знакомит с ним. Знаки по углам крупные и очень светлые:
+   узнаются боковым зрением, читать их не нужно. */
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  position: relative;
+  overflow: hidden;
+  background-color: var(--ink-0);
+  background-image:
+    linear-gradient(var(--sky-100) 1px, transparent 1px),
+    linear-gradient(90deg, var(--sky-100) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.auth-glyph {
+  position: absolute;
+  color: var(--sky-100);
+  font: 400 1em/1 var(--font-mono);
+  user-select: none;
+  pointer-events: none;
+}
+/* Рядом с карточкой знаки только мешают — на узком экране их убираем */
+@media (max-width: 900px) {
+  .auth-glyph { display: none; }
+}
+
+.auth-card {
+  position: relative;
+  width: 400px;
+  max-width: 100%;
+  background: var(--ink-0);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-md);
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+/* В регистрации полей вдвое больше, и имя с фамилией стоят в два столбца */
+.auth-card--wide { width: 460px; }
+
+.auth-head { display: flex; flex-direction: column; gap: 6px; }
+.auth-brand {
+  font: 800 28px/1 var(--font-ui);
+  letter-spacing: -0.03em;
+  color: var(--sky-600);
+}
+.auth-title { font: 600 20px/1.2 var(--font-ui); color: var(--ink-900); }
+.auth-lead { font: 400 14px/1.55 var(--font-body); color: var(--ink-500); }
+.auth-fields { display: flex; flex-direction: column; gap: 16px; }
+.auth-fields__row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.auth-actions { display: flex; flex-direction: column; gap: 12px; }
+.auth-caption {
+  font: 400 13px/1.35 var(--font-body);
+  color: var(--ink-500);
+  text-align: center;
+}
+/* Памятка вместо восстановления пароля: сбрасывает его преподаватель */
+.auth-note {
+  padding: 12px 16px;
+  background: var(--sky-50);
+  border: 1px solid var(--sky-100);
+  border-radius: var(--radius-card);
+  font: 400 13px/1.35 var(--font-body);
+  color: var(--sky-700);
+}
+.auth-teacher { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.auth-teacher__avatar {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: var(--radius-pill);
+  background: var(--sky-100);
+  color: var(--sky-700);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 700 13px/1 var(--font-ui);
+}
+
+/* Поле формы: подпись, рамка с иконкой, подсказка */
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field__label { font: 600 14px/1.35 var(--font-ui); color: var(--ink-900); }
+.field__box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px;
+  background: var(--ink-0);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--radius-control);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.field__box:focus-within { border-color: var(--sky-400); box-shadow: var(--ring-focus); }
+.field__box--error { border-color: var(--coral-400); }
+.field__box--error:focus-within { box-shadow: 0 0 0 3px var(--coral-50); }
+/* Рамку рисует обёртка, поэтому у самого поля её нет — вместе с рамкой
+   снимаем и подсветку фокуса, иначе внутри рамки появится вторая. */
+.field__box input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font: 400 15px/1.2 var(--font-body);
+  color: var(--ink-900);
+}
+.field__box input:focus { border: 0; box-shadow: none; }
+.field__box input:focus-visible { outline: none; }
+.field__box--numeric input {
+  font: 500 16px/1.35 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.field__icon { display: flex; color: var(--ink-400); }
+.field__hint { font: 400 13px/1.35 var(--font-body); color: var(--ink-500); }
+.field__error { font: 400 13px/1.35 var(--font-body); color: var(--coral-600); }
+
+/* Крупная кнопка — главное действие экрана, на который пришли ради неё */
+.btn-lg {
+  height: 48px;
+  padding: 0 20px;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* ── Домашние задания ─────────────────────────────────────────────────────── */
 /* В панели задание — короткая карточка: о чём, как идёт, до когда. Подробности,
    работы учеников и переписка не помещаются в 360 px, поэтому открываются
