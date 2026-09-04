@@ -2,6 +2,7 @@
   "name": "study-platform-hocuspocus",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts",

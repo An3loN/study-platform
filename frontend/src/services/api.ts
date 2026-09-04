@@ -1,7 +1,7 @@
 import axios from 'axios'
 import type {
   User, Student, StudentInput, Lesson, LessonDetail, LessonInput, LessonShare,
-  GuestSession, Homework, InviteInfo, Paginated,
+  GuestSession, Homework, HomeworkMessage, InviteInfo, Paginated,
 } from '@/types'
 
 // ── snake_case ↔ camelCase ───────────────────────────────────────────────────
@@ -142,8 +142,8 @@ export const lessonsApi = {
   create: (data: LessonInput) => http.post<LessonDetail>('/lessons/', data),
   update: (id: string, data: LessonInput) => http.patch<LessonDetail>(`/lessons/${id}/`, data),
   remove: (id: string) => http.delete(`/lessons/${id}/`),
-  start: (id: string) => http.post(`/lessons/${id}/start/`),
-  finish: (id: string) => http.post(`/lessons/${id}/finish/`),
+  cancel: (id: string, reason: string) =>
+    http.post<LessonDetail>(`/lessons/${id}/cancel/`, { reason }),
   shareQrUrl: (shareToken: string) => `/api/lessons/share/${shareToken}/qr.svg`,
 
   // Вход по ссылке — без аккаунта
@@ -158,13 +158,38 @@ export const lessonsApi = {
 export const homeworkApi = {
   my: () => http.get<Paginated<Homework>>('/homework/'),
   forLesson: (lessonId: string) => http.get<Paginated<Homework>>(`/lessons/${lessonId}/homework/`),
-  create: (lessonId: string, data: { text: string; attachment?: File | null }) => {
+  create: (lessonId: string, data: { text: string; attachment?: File | null; dueAt?: string | null }) => {
     const form = new FormData()
     form.append('text', data.text)
     if (data.attachment) form.append('attachment', data.attachment)
+    if (data.dueAt) form.append('due_at', data.dueAt)
     return http.post<Homework>(`/lessons/${lessonId}/homework/`, form)
   },
-  update: (id: string, data: { text: string }) => http.patch<Homework>(`/homework/${id}/`, data),
+  get: (id: string) => http.get<Homework>(`/homework/${id}/`),
+  update: (id: string, data: { text?: string; dueAt?: string | null }) =>
+    http.patch<Homework>(`/homework/${id}/`, data),
   remove: (id: string) => http.delete(`/homework/${id}/`),
+
+  /** Отметка ученика: «я сделал». Приёмка — отдельное действие преподавателя */
   setDone: (id: string, done: boolean) => http.post<Homework>(`/homework/${id}/done/`, { done }),
+
+  /** Преподаватель принимает работу (можно с оценкой) или просит поправки */
+  review: (id: string, data: { student: string; accepted: boolean; grade?: number | null }) =>
+    http.post<Homework>(`/homework/${id}/review/`, data),
+
+  /**
+   * Ветка обсуждения по паре «задание + ученик». Ученик всегда попадает
+   * в свою — параметр нужен только преподавателю, чтобы выбрать, с кем говорит.
+   */
+  messages: (id: string, student?: string) =>
+    http.get<HomeworkMessage[]>(`/homework/${id}/messages/`, {
+      params: student ? { student } : undefined,
+    }),
+  sendMessage: (id: string, data: { text: string; attachment?: File | null; student?: string }) => {
+    const form = new FormData()
+    form.append('text', data.text)
+    if (data.attachment) form.append('attachment', data.attachment)
+    if (data.student) form.append('student', data.student)
+    return http.post<HomeworkMessage>(`/homework/${id}/messages/`, form)
+  },
 }

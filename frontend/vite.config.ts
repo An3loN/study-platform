@@ -1,9 +1,39 @@
+import { cpSync } from 'node:fs'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
+/**
+ * Обе папки нужны: собранный Excalidraw просит `excalidraw-assets`,
+ * а сборка для разработки — `excalidraw-assets-dev`.
+ */
+const EXCALIDRAW_ASSET_DIRS = ['excalidraw-assets', 'excalidraw-assets-dev']
+
+/**
+ * Excalidraw подгружает шрифты и файлы локализации в рантайме, и по умолчанию
+ * тянет их с unpkg. Для урока это лишняя зависимость от внешней сети, а с
+ * русской локалью — ещё и обязательная. Кладём ассеты рядом со статикой:
+ * `window.EXCALIDRAW_ASSET_PATH = '/'` в index.html указывает искать их у нас.
+ *
+ * Копия лежит в public/ и не хранится в git — она собирается из node_modules.
+ */
+function excalidrawAssets() {
+  return {
+    name: 'excalidraw-assets',
+    buildStart() {
+      for (const dir of EXCALIDRAW_ASSET_DIRS) {
+        cpSync(
+          path.resolve(__dirname, 'node_modules/@excalidraw/excalidraw/dist', dir),
+          path.resolve(__dirname, 'public', dir),
+          { recursive: true },
+        )
+      }
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), excalidrawAssets()],
   // Excalidraw использует process.env.NODE_ENV внутри своего бандла,
   // но Vite не полифиллит Node.js-глобалы в браузере — задаём явно.
   define: {
@@ -22,10 +52,6 @@ export default defineConfig({
       '/api': {
         target: 'http://backend:8000',
         changeOrigin: true,
-      },
-      '/ws': {
-        target: 'ws://backend:8000',
-        ws: true,
       },
       '/board': {
         target: 'ws://hocuspocus:1234',

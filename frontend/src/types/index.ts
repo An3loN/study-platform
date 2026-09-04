@@ -1,5 +1,5 @@
 export type Role = 'student' | 'teacher'
-export type LessonStatus = 'scheduled' | 'active' | 'finished'
+export type LessonStatus = 'scheduled' | 'active' | 'finished' | 'cancelled'
 
 export interface UserPublic {
   id: string
@@ -39,17 +39,68 @@ export interface StudentInput {
   password?: string
 }
 
-export interface Homework {
+/** pending — не сдано, submitted — ученик отметил, revision — нужны поправки */
+export type SubmissionStatus = 'pending' | 'submitted' | 'revision' | 'accepted'
+
+export const SUBMISSION_LABEL: Record<SubmissionStatus, string> = {
+  pending: 'Не сдано',
+  submitted: 'На проверке',
+  revision: 'Нужны поправки',
+  accepted: 'Принято',
+}
+
+/** Файл, присланный учеником в ветке задания — это и есть его работа */
+export interface HomeworkFile {
   id: string
-  lesson: string
-  lessonTitle: string
-  lessonScheduledAt: string | null
+  url: string
+  name: string
+  createdAt: string
+}
+
+export interface HomeworkSubmission {
+  id: string | null
+  student: UserPublic
+  status: SubmissionStatus
+  isDone: boolean
+  doneAt: string | null
+  grade: number | null
+  acceptedAt: string | null
+  revisionRequestedAt: string | null
+  /** Что ученик прислал: файлы из его ветки обсуждения */
+  files: HomeworkFile[]
+  /** Сообщений в его ветке */
+  messagesCount: number
+}
+
+export interface HomeworkMessage {
+  id: string
+  author: UserPublic
   text: string
   attachment: string | null
-  /** Следующий урок после того, на котором задано */
+  attachmentName: string | null
+  createdAt: string
+}
+
+export interface Homework {
+  id: string
+  /** Задание не обязано быть привязано к уроку: null — задано между занятиями */
+  lesson: string | null
+  lessonTitle: string | null
+  lessonScheduledAt: string | null
+  /** Преподаватель урока — собеседник ученика в обсуждении задания */
+  teacher: UserPublic
+  text: string
+  attachment: string | null
+  /** Заданный вручную срок. null — до следующего урока */
   dueAt: string | null
-  isDone: boolean
-  doneBy: UserPublic[]
+  /** Срок, который показываем: заданный вручную или следующий урок */
+  effectiveDueAt: string | null
+  /** Преподавателю — строка на каждого ученика урока, ученику — только своя */
+  submissions: HomeworkSubmission[]
+  /** Своя сдача — у преподавателя всегда null */
+  mySubmission: HomeworkSubmission | null
+  /** Ученику — сообщения только его ветки */
+  messagesCount: number
   createdAt: string
 }
 
@@ -63,6 +114,20 @@ export interface Lesson {
   students: UserPublic[]
   homeworkCount: number
   createdAt: string
+  /** Отмена: время, причина и кто отменил. null — урок не отменяли */
+  cancelledAt: string | null
+  cancelReason: string
+  cancelledByName: string
+  /** Очный урок — без доски и без ссылки для входа */
+  hasWhiteboard: boolean
+}
+
+/** Заметка с прошлого занятия — только для преподавателя */
+export interface PreviousNote {
+  id: string
+  title: string
+  scheduledAt: string | null
+  notes: string
 }
 
 export interface LessonDetail extends Lesson {
@@ -73,6 +138,8 @@ export interface LessonDetail extends Lesson {
   shareUrl: string | null
   shareToken: string | null
   homework: Homework[]
+  /** Заметки с трёх последних занятий с теми же учениками */
+  previousNotes: PreviousNote[]
 }
 
 export interface LessonInput {
@@ -82,7 +149,7 @@ export interface LessonInput {
   comment?: string
   notes?: string
   students?: string[]
-  status?: LessonStatus
+  hasWhiteboard?: boolean
 }
 
 /** Публичная карточка урока для входящего по ссылке */
@@ -94,6 +161,8 @@ export interface LessonShare {
   status: LessonStatus
   comment: string
   teacherName: string
+  cancelledAt: string | null
+  cancelReason: string
 }
 
 export interface GuestSession {
@@ -119,10 +188,3 @@ export interface Paginated<T> {
   previous: string | null
   results: T[]
 }
-
-// WebSocket messages (Django Channels)
-export type WsMessage =
-  | { type: 'chat.message'; message: string; userId: string; username: string }
-  | { type: 'presence.join'; connectionId: string; userId: string; username: string }
-  | { type: 'presence.leave'; connectionId: string; userId: string; username: string }
-  | { type: 'lesson.status'; status: LessonStatus }

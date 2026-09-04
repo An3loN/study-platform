@@ -65,6 +65,17 @@ class ValidateAccessView(APIView):
         except (InvalidToken, TokenError):
             return Response({'detail': 'Невалидный токен.'}, status=status.HTTP_403_FORBIDDEN)
 
+        try:
+            lesson = Lesson.objects.select_related('teacher').get(room_id=room_id)
+        except Lesson.DoesNotExist:
+            return Response({'detail': 'Урок не найден.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # У очного урока доски нет — комнаты для него не существует. Проверяем
+        # до разбора токена: гостевой мог быть выдан ещё до того, как доску
+        # выключили, и действует он 12 часов.
+        if not lesson.has_whiteboard:
+            return Response({'detail': 'У этого урока нет доски.'}, status=status.HTTP_403_FORBIDDEN)
+
         # Гостевой токен привязан к конкретной комнате и пользователя не имеет
         if access_token.get('guest'):
             if str(access_token.get('room_id')) != str(room_id):
@@ -81,11 +92,6 @@ class ValidateAccessView(APIView):
             user = User.objects.get(id=access_token['user_id'])
         except (KeyError, User.DoesNotExist):
             return Response({'detail': 'Невалидный токен.'}, status=status.HTTP_403_FORBIDDEN)
-
-        try:
-            lesson = Lesson.objects.select_related('teacher').get(room_id=room_id)
-        except Lesson.DoesNotExist:
-            return Response({'detail': 'Урок не найден.'}, status=status.HTTP_404_NOT_FOUND)
 
         if not lesson.is_participant(user):
             return Response({'detail': 'Нет доступа к уроку.'}, status=status.HTTP_403_FORBIDDEN)
@@ -111,9 +117,11 @@ class YjsStateView(APIView):
         try:
             lesson = Lesson.objects.get(room_id=room_id)
             yjs = WhiteboardYjsState.objects.get(lesson=lesson)
-            return Response({'state': yjs.state})
         except (Lesson.DoesNotExist, WhiteboardYjsState.DoesNotExist):
-            return Response({'state': None})
+            # 404 — договорённость с Hocuspocus: «комната новая, состояния нет»
+            # (см. loadYjsState в hocuspocus/src/api.ts).
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        return Response({'state': yjs.state})
 
     def put(self, request, room_id):
         state = request.data.get('state', '')

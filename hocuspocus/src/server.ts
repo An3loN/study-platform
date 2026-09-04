@@ -2,6 +2,7 @@ import * as Y from 'yjs'
 import { Server, onAuthenticatePayload, onLoadDocumentPayload, onStoreDocumentPayload } from '@hocuspocus/server'
 import { Redis } from '@hocuspocus/extension-redis'
 import { validateAccess, loadYjsState, saveYjsState } from './api.js'
+import { pruneUnusedFiles } from './cleanup.js'
 import type { ConnectionContext } from './types.js'
 
 const PORT = parseInt(process.env.HOCUSPOCUS_PORT ?? '1234', 10)
@@ -49,10 +50,23 @@ const server = Server.configure({
    * Сохраняем финальное Yjs-состояние в Django.
    */
   async onStoreDocument({ documentName, document }: onStoreDocumentPayload): Promise<void> {
+    const sizeBefore = Y.encodeStateAsUpdate(document).length
+    const removed = pruneUnusedFiles(document)
+
     const update = Y.encodeStateAsUpdate(document)
+    if (removed > 0) {
+      const freed = sizeBefore - update.length
+      console.log(
+        `[cleanup] ${documentName}: удалено ненужных картинок — ${removed}, освобождено ${Math.round(freed / 1024)} КБ`,
+      )
+    }
     const base64State = Buffer.from(update).toString('base64')
-    await saveYjsState(documentName, base64State)
-    console.log(`[persistence] Состояние сохранено для комнаты ${documentName}`)
+    const saved = await saveYjsState(documentName, base64State)
+    if (saved) {
+      console.log(`[persistence] Состояние сохранено для комнаты ${documentName}`)
+    } else {
+      console.error(`[persistence] СОСТОЯНИЕ ПОТЕРЯНО для комнаты ${documentName}`)
+    }
   },
 
   extensions: [

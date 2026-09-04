@@ -1,6 +1,10 @@
 import uuid
+from datetime import timedelta
+
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.utils import timezone
 
 
 class Lesson(models.Model):
@@ -11,11 +15,11 @@ class Lesson(models.Model):
     STATUS_SCHEDULED = 'scheduled'
     STATUS_ACTIVE = 'active'
     STATUS_FINISHED = 'finished'
-    STATUS_CHOICES = [
-        (STATUS_SCHEDULED, 'Запланирован'),
-        (STATUS_ACTIVE, 'Идёт'),
-        (STATUS_FINISHED, 'Завершён'),
-    ]
+    STATUS_CANCELLED = 'cancelled'
+
+    # Длительность необязательна: если её не задали, считаем урок часовым.
+    # Нужно только чтобы понять, когда он закончился (см. ends_at).
+    DEFAULT_DURATION_MINUTES = 60
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     teacher = models.ForeignKey(
@@ -39,10 +43,40 @@ class Lesson(models.Model):
     # Быстрые заметки преподавателя: что прошли, на что обратить внимание. Ученику не видны.
     notes = models.TextField(blank=True, verbose_name='Заметки преподавателя')
 
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_SCHEDULED)
+    # Очное занятие проходит за одним столом: доска там не нужна, а заметки и
+    # домашние задания нужны. Вместе с доской у такого урока нет и смысла
+    # во входе по ссылке — заходить некуда.
+    has_whiteboard = models.BooleanField(
+        default=True,
+        verbose_name='Совместная доска',
+        help_text='Выключите для очного занятия: останутся заметки и домашние задания.',
+    )
+
     room_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     # Токен для входа на урок по ссылке, в том числе без аккаунта
     share_token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    share_expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Ссылка действует до',
+        help_text=(
+            'Пусто — считается от конца урока по настройкам платформы. '
+            'Заполните, чтобы задать свой срок для этого урока.'
+        ),
+    )
+    # Отмена. Отменить может и преподаватель, и ученик — но обязательно
+    # с причиной: второй стороне важно понимать, что случилось.
+    cancelled_at = models.DateTimeField(null=True, blank=True, verbose_name='Отменён')
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='cancelled_lessons',
+        verbose_name='Кто отменил',
+    )
+    cancel_reason = models.TextField(blank=True, verbose_name='Причина отмены')
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -53,6 +87,59 @@ class Lesson(models.Model):
     def __str__(self):
         when = self.scheduled_at.strftime('%d.%m.%Y %H:%M') if self.scheduled_at else 'без даты'
         return self.title or f'Урок {when}'
+
+    @property
+    def ends_at(self):
+        """Когда урок заканчивается. None — время начала не назначено."""
+        if not self.scheduled_at:
+            return None
+        minutes = self.duration or self.DEFAULT_DURATION_MINUTES
+        return self.scheduled_at + timedelta(minutes=minutes)
+
+    @property
+    def status(self):
+        """
+        Статус считается из времени, а не хранится: раньше преподаватель
+        переключал его руками, и урок, у которого просто закрыли вкладку,
+        навсегда оставался «идёт».
+
+        Урок без даты — всегда «запланирован»: его ещё предстоит назначить.
+        Отмена перебивает время: отменённый урок не «идёт» и не «завершается».
+        """
+        if self.cancelled_at:
+            return self.STATUS_CANCELLED
+        if not self.scheduled_at:
+            return self.STATUS_SCHEDULED
+        now = timezone.now()
+        if now < self.scheduled_at:
+            return self.STATUS_SCHEDULED
+        if now < self.ends_at:
+            return self.STATUS_ACTIVE
+        return self.STATUS_FINISHED
+
+    @property
+    def share_valid_until(self):
+        """
+        До какого момента работает ссылка на вход. None — бессрочно.
+
+        Срок считается от конца урока, а не от создания ссылки: иначе ссылка
+        на урок через неделю протухла бы задолго до самого урока. Поэтому и не
+        сохраняется в поле — перенос урока должен двигать её вместе с собой.
+        Явно заданный share_expires_at перекрывает расчёт.
+        """
+        if self.share_expires_at:
+            return self.share_expires_at
+
+        from apps.common.models import SiteSettings
+        days = SiteSettings.get().share_ttl_days
+        if not days:
+            return None
+        return (self.ends_at or self.created_at) + timedelta(days=days)
+
+    @property
+    def share_is_expired(self):
+        valid_until = self.share_valid_until
+        return valid_until is not None and timezone.now() >= valid_until
 
     def is_participant(self, user):
         if not user or not user.is_authenticated:
@@ -65,15 +152,41 @@ class Lesson(models.Model):
 
 class Homework(models.Model):
     """
-    Домашнее задание крепится к уроку, на котором задано.
-    Срок — следующий урок ученика (считается на лету, см. сериализатор).
+    Домашнее задание. Обычно крепится к уроку, на котором задано, но урок
+    необязателен: задать что-то можно и между занятиями.
+
+    Отсюда два поля, которых раньше не было. `teacher` хранится всегда — по
+    нему проверяются права, и выводить его из урока больше нельзя. `students`
+    заполняется только у заданий без урока: пока урок есть, адресаты берутся
+    из него, чтобы добавленный на занятие ученик видел домашку, как и прежде.
+    Что из двух в силе, решает `student_set`.
+
+    Срок можно задать явно; пустой `due_at` означает «до следующего урока» и
+    считается на лету (см. next_lesson_at в сериализаторе). Так перенос
+    следующего занятия двигает срок вместе с собой, пока его не зафиксировали.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     lesson = models.ForeignKey(
         Lesson,
+        null=True,
+        blank=True,
         on_delete=models.CASCADE,
         related_name='homework',
         verbose_name='Урок',
+        help_text='Можно не указывать: задание не обязано быть привязано к занятию.',
+    )
+    teacher = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='assigned_homework',
+        verbose_name='Преподаватель',
+    )
+    students = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name='personal_homework',
+        verbose_name='Кому задано',
+        help_text='Только для заданий без урока: с уроком адресаты берутся из него.',
     )
     text = models.TextField(blank=True, verbose_name='Задание')
     attachment = models.FileField(
@@ -82,11 +195,11 @@ class Homework(models.Model):
         blank=True,
         verbose_name='Файл',
     )
-    completed_by = models.ManyToManyField(
-        settings.AUTH_USER_MODEL,
-        related_name='completed_homework',
+    due_at = models.DateTimeField(
+        null=True,
         blank=True,
-        verbose_name='Отметили выполненным',
+        verbose_name='Сдать до',
+        help_text='Пусто — до следующего урока.',
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -96,4 +209,133 @@ class Homework(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        return f'ДЗ к уроку {self.lesson}'
+        if self.lesson_id:
+            return f'ДЗ к уроку {self.lesson}'
+        return f'ДЗ от {self.created_at:%d.%m.%Y}' if self.created_at else 'ДЗ без урока'
+
+    @property
+    def student_set(self):
+        """
+        Кому задано: участники урока, а без урока — перечисленные явно.
+        Всегда менеджер, чтобы вызывающему не приходилось знать, откуда взято.
+        """
+        return self.lesson.students if self.lesson_id else self.students
+
+    def is_participant(self, user):
+        """Преподаватель задания или тот, кому оно задано."""
+        if not user or not user.is_authenticated:
+            return False
+        return self.teacher_id == user.id or self.student_set.filter(pk=user.pk).exists()
+
+
+class HomeworkSubmission(models.Model):
+    """
+    Как у конкретного ученика идут дела с этим заданием.
+
+    Отметка ученика и подтверждение преподавателя — разные вещи и живут в
+    разных полях: «я сделал» не то же самое, что «принято». Требование
+    поправок снимает отметку ученика, и он отмечает заново, когда исправит.
+    """
+    STATUS_PENDING = 'pending'
+    STATUS_SUBMITTED = 'submitted'
+    STATUS_REVISION = 'revision'
+    STATUS_ACCEPTED = 'accepted'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    homework = models.ForeignKey(
+        Homework,
+        on_delete=models.CASCADE,
+        related_name='submissions',
+        verbose_name='Задание',
+    )
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='homework_submissions',
+        verbose_name='Ученик',
+    )
+
+    is_done = models.BooleanField(default=False, verbose_name='Ученик отметил выполненным')
+    done_at = models.DateTimeField(null=True, blank=True, verbose_name='Когда отметил')
+    accepted_at = models.DateTimeField(null=True, blank=True, verbose_name='Принято преподавателем')
+    revision_requested_at = models.DateTimeField(null=True, blank=True, verbose_name='Запрошены поправки')
+    grade = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
+        verbose_name='Оценка',
+        help_text='По пятибалльной шкале. Необязательна.',
+    )
+
+    class Meta:
+        verbose_name = 'Сдача домашнего задания'
+        verbose_name_plural = 'Сдачи домашних заданий'
+        constraints = [
+            models.UniqueConstraint(fields=['homework', 'student'], name='unique_submission_per_student'),
+        ]
+
+    def __str__(self):
+        return f'{self.student} — {self.homework}'
+
+    @property
+    def status(self):
+        if self.accepted_at:
+            return self.STATUS_ACCEPTED
+        if self.is_done:
+            return self.STATUS_SUBMITTED
+        if self.revision_requested_at:
+            return self.STATUS_REVISION
+        return self.STATUS_PENDING
+
+
+class HomeworkMessage(models.Model):
+    """
+    Обсуждение задания: вопросы ученика, готовые работы файлами, замечания
+    преподавателя.
+
+    Ветка своя не просто у задания, а у пары «задание + ученик»: разбор чужой
+    работы одноклассникам видеть незачем, а преподавателю нужно говорить с
+    каждым отдельно. Поэтому `student` — не автор сообщения, а чья это ветка:
+    у сообщения ученика он совпадает с автором, у сообщения преподавателя
+    указывает, кому написали.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    homework = models.ForeignKey(
+        Homework,
+        on_delete=models.CASCADE,
+        related_name='messages',
+        verbose_name='Задание',
+    )
+    # Пусто только у сообщений, написанных до разделения на ветки: чья это
+    # переписка, задним числом уже не определить, поэтому такие показываем
+    # всем участникам — это честнее, чем угадать и спрятать.
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name='homework_threads',
+        verbose_name='Чья ветка',
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='homework_messages',
+        verbose_name='Автор',
+    )
+    text = models.TextField(blank=True, verbose_name='Сообщение')
+    attachment = models.FileField(
+        upload_to='homework/messages/%Y/%m/',
+        null=True,
+        blank=True,
+        verbose_name='Файл',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Сообщение по заданию'
+        verbose_name_plural = 'Сообщения по заданиям'
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f'{self.author}: {self.text[:40]}'

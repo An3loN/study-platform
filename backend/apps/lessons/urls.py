@@ -3,14 +3,15 @@ from django.urls import path
 from .views import (
     LessonListCreateView,
     LessonDetailView,
-    LessonStartView,
-    LessonFinishView,
+    LessonCancelView,
     LessonShareInfoView,
     LessonGuestJoinView,
     LessonShareQrView,
     HomeworkListCreateView,
     HomeworkDetailView,
     HomeworkDoneView,
+    HomeworkReviewView,
+    HomeworkMessageListCreateView,
     MyHomeworkListView,
 )
 
@@ -24,8 +25,7 @@ urlpatterns = [
     path('share/<uuid:share_token>/qr.svg', LessonShareQrView.as_view(), name='lesson-share-qr'),
 
     path('<uuid:pk>/', LessonDetailView.as_view(), name='lesson-detail'),
-    path('<uuid:pk>/start/', LessonStartView.as_view(), name='lesson-start'),
-    path('<uuid:pk>/finish/', LessonFinishView.as_view(), name='lesson-finish'),
+    path('<uuid:pk>/cancel/', LessonCancelView.as_view(), name='lesson-cancel'),
     path('<uuid:lesson_pk>/homework/', HomeworkListCreateView.as_view(), name='lesson-homework'),
 ]
 
@@ -34,4 +34,6 @@ homework_urlpatterns = [
     path('', MyHomeworkListView.as_view(), name='homework-list'),
     path('<uuid:pk>/', HomeworkDetailView.as_view(), name='homework-detail'),
     path('<uuid:pk>/done/', HomeworkDoneView.as_view(), name='homework-done'),
+    path('<uuid:pk>/review/', HomeworkReviewView.as_view(), name='homework-review'),
+    path('<uuid:pk>/messages/', HomeworkMessageListCreateView.as_view(), name='homework-messages'),
 ]

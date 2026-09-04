@@ -1,8 +1,18 @@
-import { useEffect, useState, FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
+import { AuthPage } from '@/components/UI/AuthPage'
+import { Field } from '@/components/UI/Field'
+import { initials } from '@/components/UI/icons'
 import { invitesApi } from '@/services/api'
 import { useAuthStore } from '@/store/authStore'
 import type { InviteInfo } from '@/types'
+import { isPhoneComplete, maskPhone } from '@/utils/phone'
+
+const GLYPHS = [
+  { char: '÷', size: 104, top: '11%', left: '14%' },
+  { char: '∞', size: 120, bottom: '12%', left: '12%' },
+  { char: '≠', size: 92, top: '15%', right: '13%' },
+]
 
 /** Регистрация ученика по ссылке (или QR) от преподавателя. */
 export function InvitePage() {
@@ -15,9 +25,10 @@ export function InvitePage() {
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [alias, setAlias] = useState('')
-  const [phone, setPhone] = useState('')
+  const [phone, setPhone] = useState(maskPhone(''))
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [loadError, setLoadError] = useState('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -29,15 +40,24 @@ export function InvitePage() {
         setFirstName(data.firstName)
         setLastName(data.lastName)
         setAlias(data.alias)
-        setPhone(data.phone ?? '')
+        setPhone(maskPhone(data.phone ?? ''))
       })
-      .catch(() => setInvite(null))
+      .catch((err) => {
+        // Истёкшее приглашение отвечает 410 с пояснением — показываем именно
+        // его, иначе человек решит, что ошибся адресом
+        setLoadError((err as { response?: { data?: { detail?: string } } }).response?.data?.detail || '')
+        setInvite(null)
+      })
       .finally(() => setLoading(false))
   }, [token])
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault()
     if (!token) return
+    if (!isPhoneComplete(phone)) {
+      setError('Введите номер телефона целиком — по нему будешь входить.')
+      return
+    }
     setError('')
     setSaving(true)
     try {
@@ -54,95 +74,118 @@ export function InvitePage() {
   }
 
   if (loading) {
-    return <CenteredCard><p style={{ color: 'var(--color-text-secondary)' }}>Загрузка...</p></CenteredCard>
+    return (
+      <AuthPage>
+        <div className="auth-card"><p className="auth-lead">Загрузка...</p></div>
+      </AuthPage>
+    )
   }
 
   if (!invite) {
     return (
-      <CenteredCard>
-        <p>Ссылка недействительна. Попросите преподавателя прислать новую.</p>
-      </CenteredCard>
+      <AuthPage glyphs={GLYPHS}>
+        <div className="auth-card">
+          <div className="auth-head">
+            <span className="auth-brand">Мати</span>
+            <h1 className="auth-title">Ссылка не работает</h1>
+          </div>
+          <p className="auth-lead">
+            {loadError || 'Ссылка недействительна. Попроси преподавателя прислать новую.'}
+          </p>
+        </div>
+      </AuthPage>
     )
   }
 
   if (invite.isAccepted) {
     return (
-      <CenteredCard>
-        <p style={{ marginBottom: 12 }}>Эта ссылка уже использована.</p>
-        <Link to="/login">Войти по телефону</Link>
-      </CenteredCard>
+      <AuthPage glyphs={GLYPHS}>
+        <div className="auth-card">
+          <div className="auth-head">
+            <span className="auth-brand">Мати</span>
+            <h1 className="auth-title">Ссылка уже использована</h1>
+            <p className="auth-lead">Она одноразовая — дальше вход по телефону.</p>
+          </div>
+          <Link to="/login">
+            <button type="button" className="btn-primary btn-lg" style={{ width: '100%' }}>
+              Войти по телефону
+            </button>
+          </Link>
+        </div>
+      </AuthPage>
     )
   }
 
   return (
-    <CenteredCard>
-      <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4, color: 'var(--color-primary)' }}>
-        Регистрация
-      </h1>
-      <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 20 }}>
-        {invite.teacherName ? `Приглашение от преподавателя: ${invite.teacherName}` : 'Приглашение на занятия'}
-      </p>
+    <AuthPage glyphs={GLYPHS}>
+      <div className="auth-card auth-card--wide">
+        <div className="auth-head">
+          <span className="auth-brand">Мати</span>
+          <h1 className="auth-title">Регистрация</h1>
+          {invite.teacherName ? (
+            <div className="auth-teacher">
+              <span className="auth-teacher__avatar">{initials(invite.teacherName)}</span>
+              <p className="auth-lead" style={{ color: 'var(--ink-700)' }}>
+                Приглашение от преподавателя: {invite.teacherName}
+              </p>
+            </div>
+          ) : (
+            <p className="auth-lead">Приглашение на занятия.</p>
+          )}
+        </div>
 
-      <form onSubmit={handleSubmit}>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <div className="form-group" style={{ flex: 1 }}>
-            <label>Имя</label>
-            <input value={firstName} onChange={(e) => setFirstName(e.target.value)} autoFocus />
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          <div className="auth-fields">
+            <div className="auth-fields__row">
+              <Field
+                label="Имя"
+                value={firstName}
+                onChange={(event) => setFirstName(event.target.value)}
+                autoFocus
+              />
+              <Field
+                label="Фамилия"
+                value={lastName}
+                onChange={(event) => setLastName(event.target.value)}
+              />
+            </div>
+            <Field
+              label="Псевдоним"
+              placeholder="Как к тебе обращаться"
+              hint="Так тебя будут называть на уроках."
+              value={alias}
+              onChange={(event) => setAlias(event.target.value)}
+            />
+            <Field
+              label="Телефон"
+              icon="smartphone"
+              numeric
+              inputMode="tel"
+              autoComplete="username"
+              value={phone}
+              onChange={(event) => setPhone(maskPhone(event.target.value))}
+            />
+            <Field
+              label="Пароль"
+              type="password"
+              placeholder="••••••••"
+              hint="Не короче 8 символов."
+              autoComplete="new-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
           </div>
-          <div className="form-group" style={{ flex: 1 }}>
-            <label>Фамилия</label>
-            <input value={lastName} onChange={(e) => setLastName(e.target.value)} />
+
+          <div className="auth-actions">
+            {error && <p className="field__error" style={{ textAlign: 'center' }}>{error}</p>}
+            <button type="submit" className="btn-primary btn-lg" style={{ width: '100%' }} disabled={saving}>
+              {saving ? 'Сохранение...' : 'Готово'}
+            </button>
+            <p className="auth-caption">Ссылка одноразовая: после регистрации входи по телефону.</p>
           </div>
-        </div>
-
-        <div className="form-group">
-          <label>Псевдоним</label>
-          <input value={alias} onChange={(e) => setAlias(e.target.value)} placeholder="Как к вам обращаться" />
-        </div>
-
-        <div className="form-group">
-          <label>Телефон</label>
-          <input
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="+7 999 000-00-00"
-            autoComplete="username"
-            required
-          />
-        </div>
-
-        <div className="form-group">
-          <label>Пароль</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="new-password"
-            required
-          />
-        </div>
-
-        {error && <p className="error-text" style={{ marginBottom: 12 }}>{error}</p>}
-
-        <button type="submit" className="btn-primary" style={{ width: '100%' }} disabled={saving}>
-          {saving ? 'Сохранение...' : 'Готово'}
-        </button>
-      </form>
-    </CenteredCard>
-  )
-}
-
-function CenteredCard({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: 'var(--color-bg)',
-      padding: 16,
-    }}>
-      <div className="card" style={{ width: 400, maxWidth: '100%' }}>{children}</div>
-    </div>
+        </form>
+      </div>
+    </AuthPage>
   )
 }

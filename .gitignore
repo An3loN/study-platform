@@ -36,3 +36,6 @@ desktop.ini
 
 # ── Прочее ───────────────────────────────────────────────────────────────────
 *.log
+
+# Копия ассетов Excalidraw: собирается из node_modules при сборке фронтенда
+frontend/public/excalidraw-assets*/

@@ -1,35 +1,42 @@
 import { useEffect, useState, FormEvent } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { WhiteboardRoom } from '@/components/Whiteboard/WhiteboardRoom'
-import { Chat } from '@/components/Lesson/Chat'
-import { LessonSidebar } from '@/components/Lesson/LessonSidebar'
-import { useLessonRoom } from '@/hooks/useLessonRoom'
+import { Avatars } from '@/components/UI/Avatars'
 import { lessonsApi } from '@/services/api'
+import { loadGuestSession, saveGuestSession, clearGuestSession } from '@/utils/guestSession'
 import type { GuestSession, LessonShare } from '@/types'
 import { STATUS_LABEL, formatDateTime, formatDuration, lessonTitle } from '@/utils/format'
 
 /**
  * Вход на урок по ссылке без аккаунта: гость называет имя и получает
- * временный токен на комнату — доска и чат, ничего больше.
+ * временный токен на комнату — только доска, ничего больше.
  */
 export function GuestLessonPage() {
   const { shareToken } = useParams<{ shareToken: string }>()
   const [lesson, setLesson] = useState<LessonShare | null>(null)
-  const [session, setSession] = useState<GuestSession | null>(null)
+  // Сессия восстанавливается из sessionStorage: перезагрузка страницы не должна
+  // выкидывать гостя обратно на форму с именем
+  const [session, setSession] = useState<GuestSession | null>(
+    () => (shareToken ? loadGuestSession(shareToken) : null),
+  )
   const [name, setName] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [loadError, setLoadError] = useState('')
   const [joining, setJoining] = useState(false)
-
-  // Соединение живёт на уровне страницы: сворачивание панели не должно
-  // выкидывать гостя из списка участников
-  const room = useLessonRoom(session?.roomId, session?.access)
+  // Состав комнаты приходит из доски: он же рисует там курсоры
+  const [participants, setParticipants] = useState<string[]>([])
 
   useEffect(() => {
     if (!shareToken) return
     lessonsApi.shareInfo(shareToken)
       .then(({ data }) => setLesson(data))
-      .catch(() => setLesson(null))
+      .catch((err) => {
+        // Истёкшая ссылка отвечает 410 с пояснением — показываем именно его,
+        // иначе человек решит, что ошибся адресом
+        setLoadError((err as { response?: { data?: { detail?: string } } }).response?.data?.detail || '')
+        setLesson(null)
+      })
       .finally(() => setLoading(false))
   }, [shareToken])
 
@@ -40,6 +47,7 @@ export function GuestLessonPage() {
     setJoining(true)
     try {
       const { data } = await lessonsApi.join(shareToken, name.trim())
+      saveGuestSession(shareToken, data)
       setSession(data)
     } catch (err) {
       const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
@@ -49,6 +57,12 @@ export function GuestLessonPage() {
     }
   }
 
+  const handleLeave = () => {
+    if (shareToken) clearGuestSession(shareToken)
+    setSession(null)
+    setName('')
+  }
+
   if (loading) {
     return <Centered><p style={{ color: 'var(--color-text-secondary)' }}>Загрузка...</p></Centered>
   }
@@ -56,57 +70,58 @@ export function GuestLessonPage() {
   if (!lesson) {
     return (
       <Centered>
-        <p style={{ marginBottom: 12 }}>Ссылка недействительна или урок удалён.</p>
+        <p style={{ marginBottom: 12 }}>{loadError || 'Ссылка недействительна или урок удалён.'}</p>
         <Link to="/login">Войти в аккаунт</Link>
       </Centered>
     )
   }
 
-  // Гость представился — показываем доску и чат
+  // Гость представился — показываем доску.
+  // Данные урока берём из свежего lesson, а не из session: сессия могла быть
+  // сохранена час назад, за это время урок мог и завершиться.
   if (session) {
-    const conferenceUrl = session.lesson.comment.match(/https?:\/\/\S+/)?.[0] ?? null
+    const conferenceUrl = lesson.comment.match(/https?:\/\/\S+/)?.[0] ?? null
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
-        <header style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-          padding: '0 16px',
-          height: 48,
-          background: 'var(--color-surface)',
-          borderBottom: '1px solid var(--color-border)',
-          flexShrink: 0,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-            <h2 style={{ fontSize: 15, fontWeight: 600 }}>{lessonTitle(session.lesson)}</h2>
-            <span className={`badge badge-${session.lesson.status}`}>{STATUS_LABEL[session.lesson.status]}</span>
-            <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
-              {session.lesson.teacherName}
+        <header className="lesson-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            {/* Раньше сменить имя можно было перезагрузкой страницы — теперь она
+                сессию сохраняет, поэтому нужен явный выход */}
+            <button className="icon-button" title="Выйти с урока" onClick={handleLeave}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m15 18-6-6 6-6" />
+              </svg>
+            </button>
+            <div className="lesson-header__divider" />
+            <h1 className="lesson-header__title">{lessonTitle(lesson)}</h1>
+            <span className={`badge badge-${lesson.status}`}>{STATUS_LABEL[lesson.status]}</span>
+            <span className="lesson-header__meta">
+              {formatDateTime(lesson.scheduledAt)} · {formatDuration(lesson.duration)}
             </span>
+            <span className="lesson-header__teacher">{lesson.teacherName}</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12, flex: 'none' }}>
+            <Avatars names={participants} self={session.name} teacher={lesson.teacherName} />
             {conferenceUrl && (
-              <a href={conferenceUrl} target="_blank" rel="noreferrer">
-                <button className="btn-secondary">Конференция</button>
+              <a href={conferenceUrl} target="_blank" rel="noreferrer" className="header-button">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5" />
+                  <rect x="2" y="6" width="14" height="12" rx="2" />
+                </svg>
+                Конференция
               </a>
             )}
-            <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>Вы вошли как {session.name}</span>
           </div>
         </header>
 
-        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-          <div style={{ flex: 1, overflow: 'hidden' }}>
-            <WhiteboardRoom
-              roomId={session.roomId}
-              accessToken={session.access}
-              readonly={session.lesson.status === 'finished'}
-            />
-          </div>
-          <LessonSidebar
-            storageKey="guest_lesson_sidebar"
-            tabs={[{ key: 'chat', label: 'Чат', render: () => <Chat room={room} /> }]}
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+          <WhiteboardRoom
+            roomId={session.roomId}
+            accessToken={session.access}
+            username={session.name}
+            onParticipantsChange={setParticipants}
           />
         </div>
       </div>

@@ -1,6 +1,6 @@
 from django.db.models import Count
 from django.shortcuts import get_object_or_404
-from rest_framework import generics, permissions, status
+from rest_framework import exceptions, generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -77,12 +77,27 @@ class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
         )
 
 
+class InviteExpired(exceptions.APIException):
+    """410, а не 404: ссылка настоящая, но её срок вышел."""
+    status_code = status.HTTP_410_GONE
+    default_detail = 'Срок действия приглашения истёк. Попросите преподавателя прислать новое.'
+    default_code = 'invite_expired'
+
+
+def get_live_invite(token):
+    """Приглашение по токену, если оно ещё действует."""
+    invite = get_object_or_404(StudentInvite, token=token)
+    if invite.is_expired:
+        raise InviteExpired()
+    return invite
+
+
 class InviteInfoView(APIView):
     """Публично: что показать ученику, открывшему ссылку-приглашение."""
     permission_classes = [permissions.AllowAny]
 
     def get(self, request, token):
-        invite = get_object_or_404(StudentInvite, token=token)
+        invite = get_live_invite(token)
         return Response(InviteInfoSerializer(invite).data)
 
 
@@ -91,7 +106,7 @@ class InviteAcceptView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request, token):
-        invite = get_object_or_404(StudentInvite, token=token)
+        invite = get_live_invite(token)
         if invite.is_accepted:
             return Response(
                 {'detail': 'Это приглашение уже использовано.'},
@@ -112,5 +127,5 @@ class InviteQrView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request, token):
-        invite = get_object_or_404(StudentInvite, token=token)
+        invite = get_live_invite(token)
         return qr_svg_response(request.build_absolute_uri(invite.path()))

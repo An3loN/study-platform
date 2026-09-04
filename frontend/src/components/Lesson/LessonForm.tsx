@@ -20,6 +20,7 @@ export function LessonForm({
   const [scheduledAt, setScheduledAt] = useState(toLocalInput(initial?.scheduledAt ?? null))
   const [duration, setDuration] = useState(initial?.duration ? String(initial.duration) : '')
   const [comment, setComment] = useState(initial?.comment ?? '')
+  const [hasWhiteboard, setHasWhiteboard] = useState(initial?.hasWhiteboard ?? true)
   const [selected, setSelected] = useState<string[]>(
     initial?.students.map((s) => s.id) ?? (presetStudentId ? [presetStudentId] : []),
   )
@@ -41,6 +42,7 @@ export function LessonForm({
         duration: duration ? Number(duration) : null,
         comment,
         students: selected,
+        hasWhiteboard,
       })
     } catch {
       setError('Не удалось сохранить урок.')
@@ -107,6 +109,26 @@ export function LessonForm({
           rows={3}
           placeholder="Например, ссылка на аудиоконференцию"
         />
+      </div>
+
+      {/* Очное занятие проходит за одним столом: доска не нужна, а заметки
+          и домашние задания остаются. Вместе с доской у такого урока нет
+          и ссылки для входа — заходить некуда. */}
+      <div className="form-group">
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={hasWhiteboard}
+            onChange={(e) => setHasWhiteboard(e.target.checked)}
+            style={{ width: 'auto', margin: 0 }}
+          />
+          Совместная доска
+        </label>
+        <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
+          {hasWhiteboard
+            ? 'Урок с доской и ссылкой для входа.'
+            : 'Очный урок: останутся только заметки и домашние задания.'}
+        </span>
       </div>
 
       {error && <p className="error-text" style={{ marginBottom: 12 }}>{error}</p>}

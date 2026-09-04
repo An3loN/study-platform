@@ -1,7 +1,10 @@
 import re
 import uuid
+from datetime import timedelta
+
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.utils import timezone
 
 
 def normalize_phone(phone):
@@ -81,15 +84,36 @@ class StudentInvite(models.Model):
     token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     accepted_at = models.DateTimeField(null=True, blank=True, verbose_name='Принято')
+    expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Действует до',
+        help_text='Пусто — бессрочно. Проставляется при выдаче из настроек платформы.',
+    )
 
     class Meta:
         verbose_name = 'Приглашение ученика'
         verbose_name_plural = 'Приглашения учеников'
         ordering = ['-created_at']
 
+    def save(self, *args, **kwargs):
+        # Срок проставляется один раз, при выдаче: если считать его на лету от
+        # текущей настройки, её уменьшение погасило бы уже разосланные ссылки.
+        # Очищенное вручную поле означает «бессрочно» и заново не заполняется.
+        if self._state.adding and self.expires_at is None:
+            from apps.common.models import SiteSettings
+            days = SiteSettings.get().invite_ttl_days
+            if days:
+                self.expires_at = timezone.now() + timedelta(days=days)
+        super().save(*args, **kwargs)
+
     @property
     def is_accepted(self):
         return self.accepted_at is not None
+
+    @property
+    def is_expired(self):
+        return self.expires_at is not None and timezone.now() >= self.expires_at
 
     def path(self):
         return f'/invite/{self.token}'
