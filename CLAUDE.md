@@ -58,8 +58,13 @@ docker compose -f docker-compose.dev.yml up -d --build
    входом, контракт с Hocuspocus; на фронте — перехватчики `api.ts`, маска
    телефона, `lessonTitle` с календарными помощниками, лента «требуют
    внимания», `Modal`, `LessonCard`, `WeekCalendar`. В `hocuspocus` тестов
-   нет вовсе, страницы целиком не проверяются. Запуск: `pytest` в контейнере
-   backend, `npm test` во frontend.
+   нет вовсе. Сквозные лежат в `e2e/` и запускаются отдельно — образ Playwright
+   весит около двух гигабайт, поэтому он вынесен в `docker-compose.e2e.yml`
+   и в разработке не тянется. **Сквозные ни разу не запускались**: образ не
+   скачался там, где они писались, — проверены только seed/purge, API-вызовы
+   фикстур и типы. Подробности и что именно осталось непроверенным —
+   в `e2e/README.md`. Запуск: `pytest` в контейнере backend, `npm test`
+   во frontend.
 5. **Брокер сообщений.** Обсуждали RabbitMQ: для текущего масштаба Redis как
    брокер Celery достаточен. Осмысленный кейс для AMQP — прямой обмен
    `hocuspocus` (Node) ↔ Django вместо HTTP-вызова `saveYjsState`, с durable
