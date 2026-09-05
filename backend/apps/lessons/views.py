@@ -1,3 +1,4 @@
+from bisect import bisect_right
 from datetime import datetime, time, timedelta
 
 from django.db.models import DateTimeField, DurationField, ExpressionWrapper, F, Q, Value
@@ -12,6 +13,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import AccessToken
 
 from apps.common.qr import qr_svg_response
+from apps.users.models import User
 from apps.users.permissions import IsTeacher
 from .models import Lesson, Homework, HomeworkSubmission
 from .serializers import (
@@ -24,6 +26,11 @@ from .serializers import (
 )
 
 GUEST_TOKEN_LIFETIME = timedelta(hours=12)
+
+MONTHS_RU = [
+    'январь', 'февраль', 'март', 'апрель', 'май', 'июнь',
+    'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь',
+]
 
 
 def issue_guest_token(lesson, name):
@@ -493,3 +500,98 @@ class MyHomeworkListView(generics.ListCreateAPIView):
                 {'students': 'Укажите, кому задано: без урока адресатов взять неоткуда.'},
             )
         serializer.save(teacher=self.request.user)
+
+
+class HomeworkStatsView(APIView):
+    """
+    Сводка по одному ученику: оценки, сдача в срок, средняя по месяцам.
+
+    Считается на сервере и по всей истории. На фронте её пришлось бы собирать
+    из выдачи списка, а та пагинирована по 20 — цифры молча считались бы по
+    первой странице и при этом выглядели достоверно.
+
+    Только преподавателю и только про своего ученика: чужая успеваемость
+    никого не касается.
+    """
+    permission_classes = [IsTeacher]
+
+    def get(self, request, pk):
+        student = get_object_or_404(User, pk=pk, teacher=request.user, role=User.ROLE_STUDENT)
+
+        homework = (
+            Homework.objects
+            .filter(Q(teacher=request.user), Q(lesson__students=student) | Q(students=student))
+            .select_related('lesson')
+            .distinct()
+        )
+        submissions = {
+            item.homework_id: item
+            for item in HomeworkSubmission.objects.filter(homework__in=homework, student=student)
+        }
+
+        # Срок «до следующего урока» считается по урокам ученика. Спрашивать их
+        # на каждое задание — тот самый N+1 на всю историю, поэтому берём
+        # времена уроков один раз и ищем ближайшее следующее двоичным поиском.
+        lesson_times = sorted(
+            Lesson.objects
+            .filter(teacher=request.user, students=student, scheduled_at__isnull=False)
+            .values_list('scheduled_at', flat=True)
+        )
+
+        grades = []
+        by_month = {}
+        on_time = late = missed = due_total = 0
+
+        for item in homework:
+            submission = submissions.get(item.id)
+            grade = submission.grade if submission else None
+
+            if grade is not None:
+                grades.append(grade)
+                # Месяц выдачи, а не сдачи: он же стоит на карточке задания
+                key = (item.created_at.year, item.created_at.month)
+                by_month.setdefault(key, []).append(grade)
+
+            due = item.due_at
+            if due is None:
+                anchor = item.lesson.scheduled_at if item.lesson_id else item.created_at
+                if anchor is not None:
+                    following = bisect_right(lesson_times, anchor)
+                    due = lesson_times[following] if following < len(lesson_times) else None
+            if due is None:
+                continue
+
+            # «В срок» — по отметке ученика: принято ли, решает уже преподаватель
+            due_total += 1
+            done_at = submission.done_at if submission else None
+            if done_at is None:
+                missed += 1
+            elif done_at <= due:
+                on_time += 1
+            else:
+                late += 1
+
+        months = [
+            {
+                'name': MONTHS_RU[month - 1],
+                'avg': round(sum(values) / len(values), 2),
+                'percent': round(sum(values) / len(values) / 5 * 100),
+            }
+            for (_, month), values in sorted(by_month.items())[-3:]
+        ]
+
+        return Response({
+            'average': round(sum(grades) / len(grades), 2) if grades else None,
+            'total': len(grades),
+            # От пятёрки к двойке — так же, как рисуется на странице
+            'distribution': [
+                {'value': value, 'count': grades.count(value)}
+                for value in (5, 4, 3, 2)
+                if grades.count(value)
+            ],
+            'on_time': on_time,
+            'late': late,
+            'missed': missed,
+            'due_total': due_total,
+            'months': months,
+        })

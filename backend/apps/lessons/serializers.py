@@ -222,6 +222,9 @@ class LessonListSerializer(serializers.ModelSerializer):
     cancelled_by_name = serializers.CharField(source='cancelled_by.display_name', read_only=True, default='')
     # Ученику важно, с кем занятие: в списке уроков преподаватель не выводится иначе
     teacher_name = serializers.CharField(source='teacher.display_name', read_only=True)
+    # Заметки и в списке: страница ученика показывает их прямо в ленте уроков,
+    # а без этого поля добирала бы каждый урок отдельным запросом
+    notes = serializers.SerializerMethodField()
 
     class Meta:
         model = Lesson
@@ -229,16 +232,24 @@ class LessonListSerializer(serializers.ModelSerializer):
             'id', 'title', 'scheduled_at', 'duration', 'status', 'comment',
             'students', 'homework_count', 'created_at', 'has_whiteboard',
             'cancelled_at', 'cancel_reason', 'cancelled_by_name', 'teacher_name',
+            'notes',
         ]
 
     def get_homework_count(self, obj):
         return obj.homework.count()
 
+    def _is_teacher(self, obj):
+        request = self.context.get('request')
+        return bool(request and request.user.is_authenticated and obj.teacher_id == request.user.id)
+
+    def get_notes(self, obj):
+        """Заметки — только тому, кто их писал. Ученику поля нет вовсе."""
+        return obj.notes if self._is_teacher(obj) else None
+
 
 class LessonDetailSerializer(LessonListSerializer):
-    """Заметки и ссылка на вход отдаются только преподавателю."""
+    """Ссылка на вход и заметки прошлых занятий — только преподавателю."""
     teacher = UserPublicSerializer(read_only=True)
-    notes = serializers.SerializerMethodField()
     share_url = serializers.SerializerMethodField()
     share_token = serializers.SerializerMethodField()
     previous_notes = serializers.SerializerMethodField()
@@ -246,16 +257,9 @@ class LessonDetailSerializer(LessonListSerializer):
 
     class Meta(LessonListSerializer.Meta):
         fields = LessonListSerializer.Meta.fields + [
-            'teacher', 'room_id', 'notes', 'share_url', 'share_token', 'homework',
+            'teacher', 'room_id', 'share_url', 'share_token', 'homework',
             'previous_notes',
         ]
-
-    def _is_teacher(self, obj):
-        request = self.context.get('request')
-        return bool(request and request.user.is_authenticated and obj.teacher_id == request.user.id)
-
-    def get_notes(self, obj):
-        return obj.notes if self._is_teacher(obj) else None
 
     def get_previous_notes(self, obj):
         """

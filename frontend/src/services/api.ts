@@ -1,6 +1,6 @@
 import axios from 'axios'
 import type {
-  User, Student, StudentInput, Lesson, LessonDetail, LessonInput, LessonShare,
+  User, Student, StudentInput, StudentStats, Lesson, LessonDetail, LessonInput, LessonShare,
   GuestSession, Homework, HomeworkMessage, InviteInfo, Paginated,
 } from '@/types'
 
@@ -102,6 +102,8 @@ export const studentsApi = {
   create: (data: StudentInput) => http.post<Student>('/students/', data),
   update: (id: string, data: StudentInput) => http.patch<Student>(`/students/${id}/`, data),
   remove: (id: string) => http.delete(`/students/${id}/`),
+  /** Успеваемость по всей истории: на фронте её пришлось бы считать по одной странице */
+  stats: (id: string) => http.get<StudentStats>(`/students/${id}/stats/`),
   /** QR со ссылкой-приглашением: секрет — сам токен, поэтому можно прямо в <img src> */
   qrUrl: (inviteToken: string) => `/api/invites/${inviteToken}/qr.svg`,
 }

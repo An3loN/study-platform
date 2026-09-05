@@ -128,6 +128,21 @@ export interface Lesson {
   hasWhiteboard: boolean
   /** Кто ведёт: ученику важно, с кем занятие */
   teacherName: string
+  /** Заметки преподавателя. null — смотрит не он */
+  notes: string | null
+}
+
+/** Успеваемость ученика: считается на сервере по всей истории заданий */
+export interface StudentStats {
+  /** null — оценок ещё не ставили */
+  average: number | null
+  total: number
+  distribution: { value: number; count: number }[]
+  onTime: number
+  late: number
+  missed: number
+  dueTotal: number
+  months: { name: string; avg: number; percent: number }[]
 }
 
 /** Заметка с прошлого занятия — только для преподавателя */

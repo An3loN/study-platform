@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { Layout } from '@/components/UI/Layout'
 import { Modal } from '@/components/UI/Modal'
@@ -10,7 +10,7 @@ import { HomeworkModal } from '@/components/Lesson/HomeworkModal'
 import { StudentForm } from '@/components/Students/StudentForm'
 import { studentsApi, lessonsApi, homeworkApi } from '@/services/api'
 import { useAuthStore } from '@/store/authStore'
-import type { Homework, Lesson, LessonDetail, Student } from '@/types'
+import type { Homework, Lesson, Student, StudentStats } from '@/types'
 import {
   formatDate,
   formatDateTime,
@@ -23,56 +23,6 @@ import {
 const DURATION_PRESETS = [45, 60, 90]
 
 /** Оценки ученика: среднее, распределение и разбивка по месяцам. */
-function gradeStats(homework: Homework[], studentId: string) {
-  const mine = homework
-    .flatMap((item) => item.submissions.filter((s) => s.student.id === studentId).map((s) => ({ item, s })))
-  const graded = mine.filter(({ s }) => s.grade !== null)
-  const grades = graded.map(({ s }) => s.grade as number)
-
-  const average = grades.length
-    ? grades.reduce((sum, g) => sum + g, 0) / grades.length
-    : null
-
-  // Распределение оценок: сколько каких, от пятёрки к двойке
-  const distribution = [5, 4, 3, 2]
-    .map((value) => ({ value, count: grades.filter((g) => g === value).length }))
-    .filter(({ count }) => count > 0)
-
-  // «В срок» считаем по отметке ученика: принято ли — решает уже преподаватель
-  const withDue = mine.filter(({ item }) => item.effectiveDueAt)
-  const onTime = withDue.filter(({ item, s }) => (
-    s.doneAt && new Date(s.doneAt) <= new Date(item.effectiveDueAt as string)
-  ))
-  const late = withDue.filter(({ item, s }) => (
-    s.doneAt && new Date(s.doneAt) > new Date(item.effectiveDueAt as string)
-  ))
-  const missed = withDue.filter(({ s }) => !s.doneAt)
-
-  const byMonth = new Map<string, number[]>()
-  graded.forEach(({ item, s }) => {
-    const when = new Date(item.createdAt)
-    const key = when.toLocaleDateString('ru-RU', { month: 'long' })
-    byMonth.set(key, [...(byMonth.get(key) ?? []), s.grade as number])
-  })
-  const months = Array.from(byMonth.entries())
-    .slice(-3)
-    .map(([name, values]) => {
-      const avg = values.reduce((sum, g) => sum + g, 0) / values.length
-      return { name, avg, percent: Math.round((avg / 5) * 100) }
-    })
-
-  return {
-    average,
-    distribution,
-    months,
-    total: grades.length,
-    onTime: onTime.length,
-    late: late.length,
-    missed: missed.length,
-    dueTotal: withDue.length,
-  }
-}
-
 export function StudentDetailPage() {
   const { studentId } = useParams<{ studentId: string }>()
   const navigate = useNavigate()
@@ -82,7 +32,7 @@ export function StudentDetailPage() {
   const [lessons, setLessons] = useState<Lesson[]>([])
   const [homework, setHomework] = useState<Homework[]>([])
   // Заметки лежат в детальном ответе урока, поэтому подгружаем их отдельно
-  const [notes, setNotes] = useState<Record<string, string>>({})
+  const [stats, setStats] = useState<StudentStats | null>(null)
   const [loading, setLoading] = useState(true)
 
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -98,33 +48,22 @@ export function StudentDetailPage() {
 
   const load = useCallback(async () => {
     if (!studentId) return
-    const [studentRes, lessonsRes, homeworkRes] = await Promise.all([
+    const [studentRes, lessonsRes, homeworkRes, statsRes] = await Promise.all([
       studentsApi.get(studentId),
       lessonsApi.list({ student: studentId }),
       homeworkApi.my({ student: studentId }),
+      studentsApi.stats(studentId),
     ])
     setStudent(studentRes.data)
     setLessons(lessonsRes.data.results)
     setHomework(homeworkRes.data.results)
+    setStats(statsRes.data)
     setDuration(studentRes.data.defaultLessonDuration ? String(studentRes.data.defaultLessonDuration) : '')
     setLoading(false)
-
-    const details = await Promise.all(
-      lessonsRes.data.results.map((lesson) => lessonsApi.get(lesson.id)),
-    )
-    setNotes(Object.fromEntries(
-      details
-        .map(({ data }: { data: LessonDetail }) => [data.id, data.notes ?? ''])
-        .filter(([, value]) => value),
-    ))
   }, [studentId])
 
   useEffect(() => { load() }, [load])
 
-  const stats = useMemo(
-    () => (studentId ? gradeStats(homework, studentId) : null),
-    [homework, studentId],
-  )
 
   const handleSaveSettings = async () => {
     if (!studentId) return
@@ -446,7 +385,7 @@ export function StudentDetailPage() {
               <div className="lesson-grid">
                 {lessons.map((lesson) => {
                   const when = lesson.scheduledAt ? new Date(lesson.scheduledAt) : null
-                  const note = notes[lesson.id]
+                  const note = lesson.notes
                   return (
                     <button
                       key={lesson.id}
