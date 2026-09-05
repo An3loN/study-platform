@@ -48,7 +48,11 @@ http.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config
-    if (error.response?.status === 401 && !original._retry) {
+    // На самом логине 401 — это неверный пароль, а не протухшая сессия: его
+    // показывает форма. Рефрешить нечего (сессии ещё нет), а переход на
+    // /login перезагрузил бы страницу и стёр сообщение об ошибке вместе с ней.
+    const isLogin = typeof original?.url === 'string' && original.url.includes('/auth/login/')
+    if (error.response?.status === 401 && !original._retry && !isLogin) {
       original._retry = true
       const refresh = localStorage.getItem('refresh_token')
       if (!refresh) {
