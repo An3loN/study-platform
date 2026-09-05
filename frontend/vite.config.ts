@@ -48,6 +48,10 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
+    // nginx передаёт Host как есть, поэтому внутри docker-сети до Vite доходит
+    // «nginx», а не «localhost», и dev-сервер такой запрос отклоняет. Снаружи
+    // сервер не опубликован — открыт только порт nginx.
+    allowedHosts: ['nginx', 'localhost'],
     proxy: {
       '/api': {
         target: 'http://backend:8000',

@@ -13,7 +13,7 @@ test('преподаватель входит и видит свою главн�
 
   await expect(page).toHaveURL('/')
   await expect(page.getByText('Уроков сегодня')).toBeVisible()
-  await expect(page.getByRole('heading', { name: actors.studentName })).toBeVisible()
+  await expect(page.getByRole('button', { name: new RegExp(actors.studentName) })).toBeVisible()
 })
 
 test('неверный пароль показывает ошибку и не перезагружает страницу', async ({ page }) => {
@@ -42,8 +42,11 @@ test('созданный урок появляется в календаре', a
 
   await page.getByLabel('Время').fill(local)
   await page.getByLabel('Длительность').fill('45')
-  await page.getByRole('button', { name: actors.studentName }).click()
-  await page.getByRole('button', { name: 'Создать урок' }).click()
+
+  // Имя ученика есть и в списке за окном — ищем только внутри диалога
+  const dialog = page.locator('.dialog')
+  await dialog.getByRole('button', { name: actors.studentName, exact: true }).click()
+  await dialog.getByRole('button', { name: 'Создать урок' }).click()
 
   // Урок подписан участниками — темы у него больше нет
   await expect(page.getByText(actors.studentName).first()).toBeVisible()
@@ -90,8 +93,8 @@ test('гость заходит на урок по ссылке', async ({ page,
   const lesson = await created.json()
 
   await page.goto(`/j/${lesson.share_token}`)
-  await page.getByLabel(/зовут/i).fill('Дядя Вася')
-  await page.getByRole('button', { name: /Войти/ }).click()
+  await page.getByLabel('Как вас зовут?').fill('Дядя Вася')
+  await page.getByRole('button', { name: 'Войти на урок' }).click()
 
   // Доска — тяжёлый бандл, ей нужно время
   await expect(page.locator('.excalidraw')).toBeVisible({ timeout: 20_000 })
