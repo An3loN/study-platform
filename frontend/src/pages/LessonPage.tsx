@@ -120,7 +120,7 @@ export function LessonPage() {
             </svg>
           </Link>
           <div className="lesson-header__divider" />
-          <h1 className="lesson-header__title">{lessonTitle(lesson)}</h1>
+          <h1 className="lesson-header__title">{lessonTitle(lesson, user?.id)}</h1>
           <span className={`badge badge-${lesson.status}`}>{STATUS_LABEL[lesson.status]}</span>
           <span className="lesson-header__meta">
             {formatDateTime(lesson.scheduledAt)} · {formatDuration(lesson.duration)}

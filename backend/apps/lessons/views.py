@@ -1,9 +1,10 @@
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 from django.db.models import DateTimeField, DurationField, ExpressionWrapper, F, Q, Value
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
 from rest_framework import exceptions, generics, permissions, status
 from rest_framework.parsers import FormParser, MultiPartParser, JSONParser
 from rest_framework.response import Response
@@ -56,10 +57,30 @@ def lessons_for(user):
     return Lesson.objects.filter(students=user)
 
 
+def parse_moment(value):
+    """
+    Момент времени из параметра запроса. Календарю на фронте нужны границы дня
+    по местному времени пользователя, поэтому он присылает полный ISO со
+    смещением; голую дату принимаем тоже — как полночь по времени сервера.
+    """
+    if not value:
+        return None
+    moment = parse_datetime(value)
+    if moment is None:
+        day = parse_date(value)
+        if day is None:
+            return None
+        moment = datetime.combine(day, time.min)
+    if timezone.is_naive(moment):
+        moment = timezone.make_aware(moment)
+    return moment
+
+
 class LessonListCreateView(generics.ListCreateAPIView):
     """
     GET  — уроки пользователя. ?upcoming=1 — только предстоящие,
-           ?past=1 — только прошедшие, ?student=<uuid> — уроки одного ученика.
+           ?past=1 — только прошедшие, ?student=<uuid> — уроки одного ученика,
+           ?from=&to= — уроки в промежутке (для календаря на главной).
     POST — создание урока преподавателем.
     """
     permission_classes = [permissions.IsAuthenticated]
@@ -75,6 +96,16 @@ class LessonListCreateView(generics.ListCreateAPIView):
 
         if params.get('student'):
             queryset = queryset.filter(students__id=params['student'])
+
+        # Промежуток: урок без даты в него не попадает — его ещё не назначили
+        start = parse_moment(params.get('from'))
+        end = parse_moment(params.get('to'))
+        if start:
+            queryset = queryset.filter(scheduled_at__gte=start)
+        if end:
+            queryset = queryset.filter(scheduled_at__lt=end)
+        if start or end:
+            queryset = queryset.order_by('scheduled_at')
 
         now = timezone.now()
         if params.get('upcoming') or params.get('past'):
@@ -422,6 +453,7 @@ class HomeworkMessageListCreateView(generics.ListCreateAPIView):
 class MyHomeworkListView(generics.ListCreateAPIView):
     """
     GET  — домашние задания пользователя, и привязанные к уроку, и нет.
+           ?student=<uuid> — только задания этого ученика.
     POST — задание без урока: преподаватель сам перечисляет, кому задаёт.
            Задание к занятию создаётся своим маршрутом, там адресаты уже
            известны из урока.
@@ -435,13 +467,20 @@ class MyHomeworkListView(generics.ListCreateAPIView):
         # Преподавателю — всё, что он задал; ученику — заданное ему, через
         # урок или напрямую
         mine = Q(teacher=user) if user.is_teacher else (Q(lesson__students=user) | Q(students=user))
-        return (
+        queryset = (
             Homework.objects
             .filter(mine)
             .select_related('lesson', 'teacher')
             .prefetch_related('submissions__student', 'messages', 'lesson__students', 'students')
-            .distinct()
         )
+
+        # ?student=<uuid> — задания одного ученика, для его страницы.
+        # Адресат берётся из урока или из самого задания, поэтому условий два.
+        student = self.request.query_params.get('student')
+        if student:
+            queryset = queryset.filter(Q(lesson__students__id=student) | Q(students__id=student))
+
+        return queryset.distinct()
 
     def get_permissions(self):
         if self.request.method == 'POST':

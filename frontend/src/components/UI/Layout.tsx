@@ -1,10 +1,16 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
+import { Icon, initials } from './icons'
 
 interface Props {
   children: React.ReactNode
 }
 
+/**
+ * Оболочка страниц под макет: стеклянная шапка с логотипом и карточкой
+ * пользователя. Навигации в ней нет — разделы «Уроки», «Задания» и «Ученики»
+ * живут блоками на самой главной, отдельных страниц для них пока не заведено.
+ */
 export function Layout({ children }: Props) {
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
@@ -16,44 +22,30 @@ export function Layout({ children }: Props) {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <header style={{
-        background: 'var(--color-surface)',
-        borderBottom: '1px solid var(--color-border)',
-        padding: '0 24px',
-        height: 56,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        boxShadow: 'var(--shadow)',
-      }}>
-        <Link to="/" style={{ fontWeight: 700, fontSize: 18, color: 'var(--color-primary)', textDecoration: 'none' }}>
-          Study Platform
-        </Link>
+      <header className="app-header">
+        <Link to="/" className="app-header__brand">Мати</Link>
+
         {user && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <span style={{ color: 'var(--color-text-secondary)', fontSize: 13 }}>
-              {user.displayName}
-              <span style={{
-                marginLeft: 6,
-                background: 'var(--color-bg)',
-                padding: '2px 6px',
-                borderRadius: 4,
-                fontSize: 11,
-                fontWeight: 600,
-                color: 'var(--color-primary)',
-              }}>
-                {user.role === 'teacher' ? 'Преподаватель' : 'Студент'}
+          <div className="app-header__side">
+            <div className="app-user">
+              <span className="avatar">{initials(user.displayName)}</span>
+              <span className="app-user__text">
+                <span className="app-user__name">{user.displayName}</span>
+                <span className="app-user__role">
+                  {user.role === 'teacher' ? 'Преподаватель' : 'Ученик'}
+                </span>
               </span>
-            </span>
-            <button onClick={handleLogout} className="btn-secondary" style={{ padding: '4px 12px' }}>
+            </div>
+            <span className="app-header__divider" />
+            <button className="btn-ghost btn-sm btn-row" onClick={handleLogout}>
+              <Icon name="logout" size={16} />
               Выйти
             </button>
           </div>
         )}
       </header>
-      <main style={{ flex: 1, padding: 24 }}>
-        {children}
-      </main>
+
+      <main style={{ flex: 1 }}>{children}</main>
     </div>
   )
 }

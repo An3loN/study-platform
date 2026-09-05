@@ -130,12 +130,21 @@ function camelize<T>(response: { data: T }): { data: T } {
 // ── Уроки ────────────────────────────────────────────────────────────────────
 
 export const lessonsApi = {
-  list: (params?: { upcoming?: boolean; past?: boolean; student?: string }) =>
+  list: (params?: {
+    upcoming?: boolean
+    past?: boolean
+    student?: string
+    /** Границы промежутка в ISO с местным смещением — для календаря */
+    from?: string
+    to?: string
+  }) =>
     http.get<Paginated<Lesson>>('/lessons/', {
       params: {
         ...(params?.upcoming ? { upcoming: 1 } : {}),
         ...(params?.past ? { past: 1 } : {}),
         ...(params?.student ? { student: params.student } : {}),
+        ...(params?.from ? { from: params.from } : {}),
+        ...(params?.to ? { to: params.to } : {}),
       },
     }),
   get: (id: string) => http.get<LessonDetail>(`/lessons/${id}/`),
@@ -156,7 +165,28 @@ export const lessonsApi = {
 // ── Домашние задания ─────────────────────────────────────────────────────────
 
 export const homeworkApi = {
-  my: () => http.get<Paginated<Homework>>('/homework/'),
+  my: (params?: { student?: string }) =>
+    http.get<Paginated<Homework>>('/homework/', {
+      params: params?.student ? { student: params.student } : {},
+    }),
+
+  /**
+   * Задание без урока: адресатов перечисляем сами. У задания с уроком они
+   * берутся из самого урока, поэтому там свой маршрут.
+   */
+  createForStudents: (data: {
+    students: string[]
+    text: string
+    attachment?: File | null
+    dueAt?: string | null
+  }) => {
+    const form = new FormData()
+    data.students.forEach((id) => form.append('students', id))
+    form.append('text', data.text)
+    if (data.dueAt) form.append('due_at', data.dueAt)
+    if (data.attachment) form.append('attachment', data.attachment)
+    return http.post<Homework>('/homework/', form)
+  },
   forLesson: (lessonId: string) => http.get<Paginated<Homework>>(`/lessons/${lessonId}/homework/`),
   create: (lessonId: string, data: { text: string; attachment?: File | null; dueAt?: string | null }) => {
     const form = new FormData()

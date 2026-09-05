@@ -33,6 +33,15 @@ class User(AbstractUser):
     phone = models.CharField('Телефон', max_length=32, unique=True, null=True, blank=True)
     alias = models.CharField('Псевдоним', max_length=100, blank=True)
 
+    # Сколько длится урок с этим учеником по умолчанию: подставляется в форму
+    # нового урока, чтобы не выставлять одно и то же каждый раз. Пусто —
+    # подставляем общее значение Lesson.DEFAULT_DURATION_MINUTES.
+    default_lesson_duration = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name='Длительность урока по умолчанию, мин',
+    )
+
     # Преподаватель, который завёл этого ученика
     teacher = models.ForeignKey(
         'self',

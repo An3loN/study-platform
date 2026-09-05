@@ -1,44 +1,39 @@
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
+import { Icon } from './icons'
 
 interface Props {
   title: string
+  /** Строка под заголовком: чем это окно поможет и что необязательно заполнять */
+  description?: string
   onClose: () => void
   children: ReactNode
   width?: number
 }
 
-export function Modal({ title, onClose, children, width = 420 }: Props) {
+/** Окно из макета: заголовок с пояснением, крестик в углу и прокрутка тела. */
+export function Modal({ title, description, onClose, children, width = 460 }: Props) {
+  // Escape закрывает окно: тянуться мышью к крестику ради отмены не нужно
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0, 0, 0, 0.35)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 16,
-        zIndex: 100,
-      }}
-    >
+    <div className="dialog" onClick={onClose}>
       <div
+        className="dialog__window"
+        style={{ maxWidth: width }}
         onClick={(e) => e.stopPropagation()}
-        className="card"
-        style={{ width, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h3 style={{ fontSize: 16, fontWeight: 600 }}>{title}</h3>
-          <button
-            onClick={onClose}
-            className="btn-secondary"
-            style={{ padding: '2px 10px', border: 'none', fontSize: 18, lineHeight: 1.2 }}
-            aria-label="Закрыть"
-          >
-            ×
+        <div className="dialog__head">
+          <h3 className="dialog__title">{title}</h3>
+          {description && <p className="dialog__desc">{description}</p>}
+          <button className="icon-button dialog__close" onClick={onClose} aria-label="Закрыть">
+            <Icon name="close" size={18} />
           </button>
         </div>
-        {children}
+        <div className="dialog__body">{children}</div>
       </div>
     </div>
   )

@@ -220,13 +220,15 @@ class LessonListSerializer(serializers.ModelSerializer):
     # status — свойство модели, считается из времени; ModelSerializer сам его не подхватит
     status = serializers.CharField(read_only=True)
     cancelled_by_name = serializers.CharField(source='cancelled_by.display_name', read_only=True, default='')
+    # Ученику важно, с кем занятие: в списке уроков преподаватель не выводится иначе
+    teacher_name = serializers.CharField(source='teacher.display_name', read_only=True)
 
     class Meta:
         model = Lesson
         fields = [
             'id', 'title', 'scheduled_at', 'duration', 'status', 'comment',
             'students', 'homework_count', 'created_at', 'has_whiteboard',
-            'cancelled_at', 'cancel_reason', 'cancelled_by_name',
+            'cancelled_at', 'cancel_reason', 'cancelled_by_name', 'teacher_name',
         ]
 
     def get_homework_count(self, obj):

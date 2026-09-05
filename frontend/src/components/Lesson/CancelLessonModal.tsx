@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Modal } from '@/components/UI/Modal'
 import { lessonsApi } from '@/services/api'
+import { useAuthStore } from '@/store/authStore'
 import type { Lesson } from '@/types'
 import { formatDateTime, lessonTitle } from '@/utils/format'
 
@@ -15,6 +16,9 @@ interface Props {
  * без объяснения — худшее, что можно прислать человеку, который освободил время.
  */
 export function CancelLessonModal({ lesson, onClose, onCancelled }: Props) {
+  // Отменяют урок обе стороны, а урок подписан участниками — кому показываем,
+  // тот в подписи и лишний
+  const selfId = useAuthStore((state) => state.user?.id)
   const [reason, setReason] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -39,7 +43,7 @@ export function CancelLessonModal({ lesson, onClose, onCancelled }: Props) {
   return (
     <Modal title="Отменить урок" onClose={onClose}>
       <p style={{ fontSize: 14, marginBottom: 16, color: 'var(--ink-600)' }}>
-        {lessonTitle(lesson)} · {formatDateTime(lesson.scheduledAt)}
+        {lessonTitle(lesson, selfId)} · {formatDateTime(lesson.scheduledAt)}
       </p>
 
       <form onSubmit={handleSubmit}>

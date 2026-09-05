@@ -1,3 +1,5 @@
+import { initials } from './icons'
+
 interface Props {
   /** Имена тех, кто сейчас в комнате */
   names: string[]
@@ -7,16 +9,6 @@ interface Props {
   teacher?: string
   /** Сколько кружков показать до счётчика «+N» */
   max?: number
-}
-
-/** «Кирилл Мохов» → «КМ», «Аня» → «А» */
-function initials(name: string): string {
-  return name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((word) => word[0]?.toUpperCase() ?? '')
-    .join('')
 }
 
 /** Стопка аватарок участников урока — тот же состав, что рисует курсоры на доске. */

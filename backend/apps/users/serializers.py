@@ -52,19 +52,51 @@ class LoginSerializer(serializers.Serializer):
 
 
 class StudentSerializer(serializers.ModelSerializer):
-    """Карточка ученика в списке у преподавателя."""
+    """
+    Карточка ученика у преподавателя. Она же принимает правки со страницы
+    ученика, включая пароль: восстановления по SMS нет, сбрасывает
+    преподаватель — об этом прямо сказано на экране входа.
+    """
     display_name = serializers.CharField(read_only=True)
     lessons_count = serializers.IntegerField(read_only=True)
     is_registered = serializers.SerializerMethodField()
     invite_token = serializers.SerializerMethodField()
     invite_url = serializers.SerializerMethodField()
+    invite_expires_at = serializers.SerializerMethodField()
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = User
         fields = [
             'id', 'first_name', 'last_name', 'alias', 'display_name', 'phone',
-            'lessons_count', 'is_registered', 'invite_token', 'invite_url',
+            'default_lesson_duration', 'lessons_count', 'is_registered',
+            'invite_token', 'invite_url', 'invite_expires_at', 'password',
+            'date_joined',
         ]
+        read_only_fields = ['date_joined']
+
+    def get_invite_expires_at(self, obj):
+        invite = self._invite(obj)
+        return invite.expires_at if invite else None
+
+    def validate_phone(self, value):
+        phone = normalize_phone(value)
+        if phone and User.objects.filter(phone=phone).exclude(pk=self.instance.pk).exists():
+            raise serializers.ValidationError('Пользователь с таким телефоном уже есть.')
+        return phone
+
+    def validate_password(self, value):
+        if value:
+            validate_password(value)
+        return value
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop('password', '')
+        student = super().update(instance, validated_data)
+        if password:
+            student.set_password(password)
+            student.save(update_fields=['password'])
+        return student
 
     def get_is_registered(self, obj):
         return obj.has_usable_password() and bool(obj.phone)
@@ -94,7 +126,7 @@ class StudentCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['first_name', 'last_name', 'alias', 'phone', 'password']
+        fields = ['first_name', 'last_name', 'alias', 'phone', 'password', 'default_lesson_duration']
         extra_kwargs = {
             'first_name': {'required': False, 'allow_blank': True},
             'last_name': {'required': False, 'allow_blank': True},
