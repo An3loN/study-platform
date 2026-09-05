@@ -5,14 +5,29 @@ from .models import User, StudentInvite
 
 @admin.register(User)
 class CustomUserAdmin(UserAdmin):
+    """
+    Наборы полей задаём целиком, а не достраиваем к `UserAdmin.fieldsets`:
+    базовые начинаются с `username`, которого у модели нет — логин это телефон.
+    """
     list_display = ['display_name', 'phone', 'role', 'teacher', 'is_staff', 'date_joined']
     list_filter = ['role', 'is_staff', 'is_active']
-    search_fields = ['username', 'phone', 'first_name', 'last_name', 'alias']
-    fieldsets = UserAdmin.fieldsets + (
-        ('Профиль', {'fields': ('role', 'phone', 'alias', 'teacher', 'avatar', 'bio')}),
+    search_fields = ['phone', 'first_name', 'last_name', 'alias']
+    ordering = ['phone']
+
+    fieldsets = (
+        (None, {'fields': ('phone', 'password')}),
+        ('Личные данные', {'fields': ('first_name', 'last_name', 'email')}),
+        ('Профиль', {'fields': ('role', 'alias', 'teacher', 'avatar', 'bio',
+                                'default_lesson_duration')}),
+        ('Права', {'fields': ('is_active', 'is_staff', 'is_superuser',
+                              'groups', 'user_permissions')}),
+        ('Даты', {'fields': ('last_login', 'date_joined')}),
     )
-    add_fieldsets = UserAdmin.add_fieldsets + (
-        ('Профиль', {'fields': ('role', 'phone', 'alias', 'teacher')}),
+    add_fieldsets = (
+        (None, {
+            'classes': ('wide',),
+            'fields': ('phone', 'password1', 'password2', 'role', 'alias', 'teacher'),
+        }),
     )
 
 

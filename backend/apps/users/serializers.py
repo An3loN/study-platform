@@ -1,5 +1,3 @@
-import uuid
-
 from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 from rest_framework import serializers
@@ -12,10 +10,6 @@ from .models import User, StudentInvite, normalize_phone
 def issue_tokens(user):
     refresh = RefreshToken.for_user(user)
     return {'access': str(refresh.access_token), 'refresh': str(refresh)}
-
-
-def generate_username(prefix='student'):
-    return f'{prefix}-{uuid.uuid4().hex[:10]}'
 
 
 class UserPublicSerializer(serializers.ModelSerializer):
@@ -39,7 +33,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
 
 class LoginSerializer(serializers.Serializer):
-    """Вход по телефону — username остаётся техническим полем."""
+    """Вход по телефону: он же USERNAME_FIELD."""
     phone = serializers.CharField()
     password = serializers.CharField(write_only=True)
 
@@ -148,7 +142,6 @@ class StudentCreateSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         password = validated_data.pop('password', '')
         student = User(
-            username=generate_username(),
             role=User.ROLE_STUDENT,
             teacher=self.context['request'].user,
             **validated_data,

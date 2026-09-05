@@ -21,7 +21,6 @@ INSTALLED_APPS = [
     # Local
     'apps.common',
     'apps.users',
-    'apps.courses',
     'apps.lessons',
     'apps.whiteboard',
 ]
