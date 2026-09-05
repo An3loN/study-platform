@@ -20,7 +20,10 @@ const EXCALIDRAW_ASSET_DIRS = ['excalidraw-assets', 'excalidraw-assets-dev']
 function excalidrawAssets() {
   return {
     name: 'excalidraw-assets',
-    buildStart() {
+    // Именно configResolved, а не buildStart: статическую отдачу public/ Vite
+    // настраивает раньше, чем доходит до buildStart, и на чистом клоне —
+    // когда папки ещё нет — ассеты не отдавались до перезапуска сервера.
+    configResolved() {
       for (const dir of EXCALIDRAW_ASSET_DIRS) {
         cpSync(
           path.resolve(__dirname, 'node_modules/@excalidraw/excalidraw/dist', dir),
