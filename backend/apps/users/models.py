@@ -23,6 +23,10 @@ class PhoneUserManager(UserManager):
     """
 
     def create_user(self, phone=None, email=None, password=None, **extra_fields):
+        # Телефон необязателен: карточку ученика преподаватель заводит раньше,
+        # чем тот зарегистрируется, и до этого момента логина у ученика нет.
+        # В Postgres несколько NULL не нарушают unique, так что таких может
+        # быть сколько угодно.
         extra_fields.setdefault('is_staff', False)
         extra_fields.setdefault('is_superuser', False)
         return self._create_user_object(phone, email, password, **extra_fields)
@@ -34,11 +38,12 @@ class PhoneUserManager(UserManager):
         extra_fields.setdefault('role', User.ROLE_TEACHER)
         if not extra_fields['is_staff'] or not extra_fields['is_superuser']:
             raise ValueError('Суперпользователь должен быть is_staff и is_superuser.')
+        # А вот ему телефон нужен: он же логин, и войти без него некуда
+        if not phone:
+            raise ValueError('Телефон обязателен: суперпользователю им входить.')
         return self._create_user_object(phone, email, password, **extra_fields)
 
     def _create_user_object(self, phone, email, password, **extra_fields):
-        if not phone:
-            raise ValueError('Телефон обязателен: он же логин.')
         user = self.model(
             phone=normalize_phone(phone),
             email=self.normalize_email(email) if email else '',

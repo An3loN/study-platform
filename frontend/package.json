@@ -5,23 +5,28 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run --config vitest.config.ts",
+    "test:watch": "vitest --config vitest.config.ts"
   },
   "dependencies": {
+    "@excalidraw/excalidraw": "^0.17.6",
+    "@hocuspocus/provider": "^2.15.2",
+    "axios": "^1.7.9",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0",
-    "axios": "^1.7.9",
-    "zustand": "^5.0.2",
-    "@excalidraw/excalidraw": "^0.17.6",
     "yjs": "^13.6.18",
-    "@hocuspocus/provider": "^2.15.2"
+    "zustand": "^5.0.2"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "axios-mock-adapter": "^2.1.0",
+    "jsdom": "^25.0.1",
     "typescript": "^5.7.2",
-    "vite": "^6.0.5"
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8"
   }
 }

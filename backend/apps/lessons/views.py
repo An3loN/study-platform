@@ -123,11 +123,17 @@ class LessonListCreateView(generics.ListCreateAPIView):
         if params.get('upcoming'):
             # Урок без даты считаем предстоящим: его ещё предстоит назначить.
             # Идущий сейчас урок остаётся здесь, даже если время начала прошло.
+            #
+            # Строгое `>`, а не `>=`: момент окончания уроку уже не принадлежит —
+            # `Lesson.status` в этот момент отвечает «завершён». С нестрогим
+            # сравнением урок, кончающийся ровно сейчас, попадал и в
+            # «предстоящие», и в «прошедшие», то есть две реализации одного
+            # правила расходились на границе.
             queryset = queryset.filter(
-                Q(scheduled_at__isnull=True) | Q(ends_at_db__gte=now),
+                Q(scheduled_at__isnull=True) | Q(ends_at_db__gt=now),
             ).order_by('scheduled_at')
         elif params.get('past'):
-            queryset = queryset.filter(ends_at_db__lt=now).order_by('-scheduled_at')
+            queryset = queryset.filter(ends_at_db__lte=now).order_by('-scheduled_at')
 
         return queryset
 

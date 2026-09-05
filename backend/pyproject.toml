@@ -24,6 +24,20 @@ qrcode                      = "8.0"
 [tool.poetry.group.dev.dependencies]
 django-debug-toolbar = "4.4.6"
 ipython              = "8.31.0"
+pytest               = "8.3.4"
+pytest-django        = "4.9.0"
+# Статус урока вычисляется из времени — без подмены часов половину случаев
+# не проверить
+time-machine         = "2.16.0"
+
+[tool.pytest.ini_options]
+# Именно --ds, а не ini-опция DJANGO_SETTINGS_MODULE: в образе эта переменная
+# окружения выставлена в config.settings.dev и перебила бы ini, а аргумент
+# командной строки перебивает переменную. Иначе тесты в контейнере молча
+# запускались бы с debug-toolbar.
+addopts = "--ds=config.settings.test"
+python_files = ["test_*.py"]
+testpaths = ["apps"]
 
 [build-system]
 requires      = ["poetry-core"]
