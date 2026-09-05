@@ -34,11 +34,15 @@ test('созданный урок появляется в календаре', a
   await signIn(page, TEACHER_PHONE, TEACHER_PASSWORD)
   await page.getByRole('button', { name: 'Добавить урок' }).first().click()
 
-  const at = new Date()
-  at.setHours(at.getHours() + 2, 0, 0, 0)
-  const local = new Date(at.getTime() - at.getTimezoneOffset() * 60_000)
-    .toISOString()
-    .slice(0, 16)
+  // Полдень сегодняшнего дня — по часам браузера, а не тестового процесса:
+  // у них разные пояса, и под вечер «сегодня» у них расходится на сутки.
+  // Календарь показывает выбранный день, то есть сегодняшний по браузеру;
+  // прошло уже это время или нет, для списка дня неважно.
+  const local = await page.evaluate(() => {
+    const at = new Date()
+    at.setHours(12, 0, 0, 0)
+    return new Date(at.getTime() - at.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+  })
 
   await page.getByLabel('Время').fill(local)
   await page.getByLabel('Длительность').fill('45')
@@ -50,7 +54,11 @@ test('созданный урок появляется в календаре', a
 
   // Урок подписан участниками — темы у него больше нет
   await expect(page.getByText(actors.studentName).first()).toBeVisible()
-  await expect(page.getByRole('button', { name: /Войти на доску/ }).first()).toBeVisible()
+  // Кнопка зависит от того, прошёл урок или нет, — здесь важно лишь, что
+  // строка урока появилась и ведёт внутрь
+  await expect(
+    page.getByRole('button', { name: /Войти на доску|Открыть урок/ }).first(),
+  ).toBeVisible()
 })
 
 test('задание с главной открывается окном, а не переходом на урок', async ({ page, actors }) => {
