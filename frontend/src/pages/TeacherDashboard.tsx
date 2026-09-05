@@ -14,6 +14,7 @@ import { WeekCalendar } from '@/components/Lesson/WeekCalendar'
 import { LessonCard } from '@/components/Lesson/LessonCard'
 import { studentsApi, lessonsApi, homeworkApi } from '@/services/api'
 import { useAuthStore } from '@/store/authStore'
+import { attentionOf, type Attention } from './attention'
 import type { Homework, Lesson, Student } from '@/types'
 import {
   addDays,
@@ -24,65 +25,6 @@ import {
   plural,
   startOfDay,
 } from '@/utils/format'
-
-/** Что с заданием не так — по нему и сортируется лента «требуют внимания». */
-type Attention = {
-  homework: Homework
-  tone: 'brand' | 'warning' | 'neutral'
-  status: string
-  meta: string
-  urgent: boolean
-  /** Срок уже прошёл или истекает в ближайшие сутки */
-  expiring: boolean
-  order: number
-}
-
-const DAY_MS = 24 * 60 * 60 * 1000
-
-function attentionOf(homework: Homework, now: Date): Attention | null {
-  const submitted = homework.submissions.filter((s) => s.isDone && !s.acceptedAt)
-  const due = homework.effectiveDueAt ? new Date(homework.effectiveDueAt) : null
-  const overdue = Boolean(due && due < now)
-  const waiting = homework.submissions.filter((s) => !s.isDone && !s.acceptedAt)
-  const expiring = Boolean(
-    due && waiting.length > 0 && due.getTime() - now.getTime() < DAY_MS,
-  )
-
-  if (submitted.length > 0) {
-    return {
-      homework,
-      tone: 'brand',
-      status: `Прислали ${submitted.length}`,
-      meta: submitted.map((s) => s.student.displayName).join(', '),
-      urgent: false,
-      expiring,
-      order: 0,
-    }
-  }
-  if (overdue && waiting.length > 0) {
-    return {
-      homework,
-      tone: 'warning',
-      status: 'Просрочено',
-      meta: `Срок ${formatDateTime(homework.effectiveDueAt)} · не сдали: ${waiting.map((s) => s.student.displayName).join(', ')}`,
-      urgent: true,
-      expiring,
-      order: 1,
-    }
-  }
-  if (waiting.length > 0) {
-    return {
-      homework,
-      tone: 'neutral',
-      status: 'Ждём сдачи',
-      meta: due ? `Срок ${formatDateTime(homework.effectiveDueAt)}` : 'Срок — следующий урок',
-      urgent: false,
-      expiring,
-      order: 2,
-    }
-  }
-  return null
-}
 
 export function TeacherDashboard() {
   const navigate = useNavigate()

@@ -43,21 +43,26 @@ export function WeekCalendar({
   const [lessons, setLessons] = useState<Lesson[]>([])
   const [loading, setLoading] = useState(true)
 
-  const monday = useMemo(() => startOfWeek(selected), [selected])
+  // Зависимость по числу, а не по объекту Date: startOfWeek возвращает новый
+  // объект на каждый пересчёт, и на нём эффект перезапускался при выборе
+  // другого дня той же недели — то есть неделя грузилась заново на каждый клик
+  const mondayTime = useMemo(() => startOfWeek(selected).getTime(), [selected])
+  const monday = useMemo(() => new Date(mondayTime), [mondayTime])
   const days = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(monday, i)),
     [monday],
   )
 
   useEffect(() => {
+    const from = new Date(mondayTime)
     let cancelled = false
     setLoading(true)
     lessonsApi
-      .list({ from: monday.toISOString(), to: addDays(monday, 7).toISOString() })
+      .list({ from: from.toISOString(), to: addDays(from, 7).toISOString() })
       .then(({ data }) => { if (!cancelled) setLessons(data.results) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [monday, reloadKey])
+  }, [mondayTime, reloadKey])
 
   const lessonsOf = (day: Date) => lessons.filter(
     (lesson) => lesson.scheduledAt && isSameDay(new Date(lesson.scheduledAt), day),

@@ -58,6 +58,22 @@ def lesson_ends_at():
     return ExpressionWrapper(F('scheduled_at') + delta, output_field=DateTimeField())
 
 
+def parse_bool(value, default=False):
+    """
+    Булево из тела запроса.
+
+    В JSON приходит настоящий `bool`, а в форме — строка, и `bool('false')`
+    это `True`. Через форму «снять отметку» ставило её обратно, а
+    `accepted=false` принимало работу вместо отправки на поправки. Оба
+    парсера у этих endpoint'ов включены, так что разбирать надо явно.
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ('true', '1', 'yes', 'on')
+
+
 def lessons_for(user):
     if user.is_teacher:
         return Lesson.objects.filter(teacher=user)
@@ -346,7 +362,7 @@ class HomeworkDoneView(APIView):
     def post(self, request, pk):
         homework = get_homework_for(request.user, pk)
 
-        done = bool(request.data.get('done', True))
+        done = parse_bool(request.data.get('done'), default=True)
         submission, _ = HomeworkSubmission.objects.get_or_create(
             homework=homework, student=request.user,
         )
@@ -384,7 +400,7 @@ class HomeworkReviewView(APIView):
         if not homework.student_set.filter(pk=student_id).exists():
             return Response({'detail': 'Этому ученику задание не задавали.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        accepted = bool(request.data.get('accepted', False))
+        accepted = parse_bool(request.data.get('accepted'))
         grade = request.data.get('grade')
         if grade not in (None, ''):
             try:
