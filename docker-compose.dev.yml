@@ -51,8 +51,11 @@ services:
       context: ./hocuspocus
       dockerfile: Dockerfile.dev
     volumes:
-      - ./hocuspocus/src:/app/src
-      - /app/node_modules
+      # Монтируем весь проект, а не только src: иначе правки tsconfig.json,
+      # package.json и vitest.config.ts требуют пересборки образа — так же,
+      # как у frontend
+      - ./hocuspocus:/app
+      - /app/node_modules          # изолируем node_modules от хоста
     env_file: .env
     ports:
       - "1234:1234"    # прямой доступ для отладки

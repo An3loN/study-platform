@@ -3,3 +3,7 @@ node_modules
 dist
 .env
 *.log
+# Тесты в образе не нужны: в dist они не попадают (исключены в tsconfig),
+# а vitest и nock после npm prune --omit=dev всё равно удаляются
+src/**/*.test.ts
+vitest.config.ts

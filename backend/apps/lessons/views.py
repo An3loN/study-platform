@@ -1,9 +1,11 @@
-from datetime import timedelta
+from bisect import bisect_right
+from datetime import datetime, time, timedelta
 
 from django.db.models import DateTimeField, DurationField, ExpressionWrapper, F, Q, Value
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
 from rest_framework import exceptions, generics, permissions, status
 from rest_framework.parsers import FormParser, MultiPartParser, JSONParser
 from rest_framework.response import Response
@@ -11,6 +13,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import AccessToken
 
 from apps.common.qr import qr_svg_response
+from apps.users.models import User
 from apps.users.permissions import IsTeacher
 from .models import Lesson, Homework, HomeworkSubmission
 from .serializers import (
@@ -23,6 +26,11 @@ from .serializers import (
 )
 
 GUEST_TOKEN_LIFETIME = timedelta(hours=12)
+
+MONTHS_RU = [
+    'январь', 'февраль', 'март', 'апрель', 'май', 'июнь',
+    'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь',
+]
 
 
 def issue_guest_token(lesson, name):
@@ -50,16 +58,52 @@ def lesson_ends_at():
     return ExpressionWrapper(F('scheduled_at') + delta, output_field=DateTimeField())
 
 
+def parse_bool(value, default=False):
+    """
+    Булево из тела запроса.
+
+    В JSON приходит настоящий `bool`, а в форме — строка, и `bool('false')`
+    это `True`. Через форму «снять отметку» ставило её обратно, а
+    `accepted=false` принимало работу вместо отправки на поправки. Оба
+    парсера у этих endpoint'ов включены, так что разбирать надо явно.
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ('true', '1', 'yes', 'on')
+
+
 def lessons_for(user):
     if user.is_teacher:
         return Lesson.objects.filter(teacher=user)
     return Lesson.objects.filter(students=user)
 
 
+def parse_moment(value):
+    """
+    Момент времени из параметра запроса. Календарю на фронте нужны границы дня
+    по местному времени пользователя, поэтому он присылает полный ISO со
+    смещением; голую дату принимаем тоже — как полночь по времени сервера.
+    """
+    if not value:
+        return None
+    moment = parse_datetime(value)
+    if moment is None:
+        day = parse_date(value)
+        if day is None:
+            return None
+        moment = datetime.combine(day, time.min)
+    if timezone.is_naive(moment):
+        moment = timezone.make_aware(moment)
+    return moment
+
+
 class LessonListCreateView(generics.ListCreateAPIView):
     """
     GET  — уроки пользователя. ?upcoming=1 — только предстоящие,
-           ?past=1 — только прошедшие, ?student=<uuid> — уроки одного ученика.
+           ?past=1 — только прошедшие, ?student=<uuid> — уроки одного ученика,
+           ?from=&to= — уроки в промежутке (для календаря на главной).
     POST — создание урока преподавателем.
     """
     permission_classes = [permissions.IsAuthenticated]
@@ -76,6 +120,16 @@ class LessonListCreateView(generics.ListCreateAPIView):
         if params.get('student'):
             queryset = queryset.filter(students__id=params['student'])
 
+        # Промежуток: урок без даты в него не попадает — его ещё не назначили
+        start = parse_moment(params.get('from'))
+        end = parse_moment(params.get('to'))
+        if start:
+            queryset = queryset.filter(scheduled_at__gte=start)
+        if end:
+            queryset = queryset.filter(scheduled_at__lt=end)
+        if start or end:
+            queryset = queryset.order_by('scheduled_at')
+
         now = timezone.now()
         if params.get('upcoming') or params.get('past'):
             # Статус вычисляется из времени, поэтому и фильтровать приходится по
@@ -85,11 +139,17 @@ class LessonListCreateView(generics.ListCreateAPIView):
         if params.get('upcoming'):
             # Урок без даты считаем предстоящим: его ещё предстоит назначить.
             # Идущий сейчас урок остаётся здесь, даже если время начала прошло.
+            #
+            # Строгое `>`, а не `>=`: момент окончания уроку уже не принадлежит —
+            # `Lesson.status` в этот момент отвечает «завершён». С нестрогим
+            # сравнением урок, кончающийся ровно сейчас, попадал и в
+            # «предстоящие», и в «прошедшие», то есть две реализации одного
+            # правила расходились на границе.
             queryset = queryset.filter(
-                Q(scheduled_at__isnull=True) | Q(ends_at_db__gte=now),
+                Q(scheduled_at__isnull=True) | Q(ends_at_db__gt=now),
             ).order_by('scheduled_at')
         elif params.get('past'):
-            queryset = queryset.filter(ends_at_db__lt=now).order_by('-scheduled_at')
+            queryset = queryset.filter(ends_at_db__lte=now).order_by('-scheduled_at')
 
         return queryset
 
@@ -302,7 +362,7 @@ class HomeworkDoneView(APIView):
     def post(self, request, pk):
         homework = get_homework_for(request.user, pk)
 
-        done = bool(request.data.get('done', True))
+        done = parse_bool(request.data.get('done'), default=True)
         submission, _ = HomeworkSubmission.objects.get_or_create(
             homework=homework, student=request.user,
         )
@@ -340,7 +400,7 @@ class HomeworkReviewView(APIView):
         if not homework.student_set.filter(pk=student_id).exists():
             return Response({'detail': 'Этому ученику задание не задавали.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        accepted = bool(request.data.get('accepted', False))
+        accepted = parse_bool(request.data.get('accepted'))
         grade = request.data.get('grade')
         if grade not in (None, ''):
             try:
@@ -422,6 +482,7 @@ class HomeworkMessageListCreateView(generics.ListCreateAPIView):
 class MyHomeworkListView(generics.ListCreateAPIView):
     """
     GET  — домашние задания пользователя, и привязанные к уроку, и нет.
+           ?student=<uuid> — только задания этого ученика.
     POST — задание без урока: преподаватель сам перечисляет, кому задаёт.
            Задание к занятию создаётся своим маршрутом, там адресаты уже
            известны из урока.
@@ -435,13 +496,20 @@ class MyHomeworkListView(generics.ListCreateAPIView):
         # Преподавателю — всё, что он задал; ученику — заданное ему, через
         # урок или напрямую
         mine = Q(teacher=user) if user.is_teacher else (Q(lesson__students=user) | Q(students=user))
-        return (
+        queryset = (
             Homework.objects
             .filter(mine)
             .select_related('lesson', 'teacher')
             .prefetch_related('submissions__student', 'messages', 'lesson__students', 'students')
-            .distinct()
         )
+
+        # ?student=<uuid> — задания одного ученика, для его страницы.
+        # Адресат берётся из урока или из самого задания, поэтому условий два.
+        student = self.request.query_params.get('student')
+        if student:
+            queryset = queryset.filter(Q(lesson__students__id=student) | Q(students__id=student))
+
+        return queryset.distinct()
 
     def get_permissions(self):
         if self.request.method == 'POST':
@@ -454,3 +522,98 @@ class MyHomeworkListView(generics.ListCreateAPIView):
                 {'students': 'Укажите, кому задано: без урока адресатов взять неоткуда.'},
             )
         serializer.save(teacher=self.request.user)
+
+
+class HomeworkStatsView(APIView):
+    """
+    Сводка по одному ученику: оценки, сдача в срок, средняя по месяцам.
+
+    Считается на сервере и по всей истории. На фронте её пришлось бы собирать
+    из выдачи списка, а та пагинирована по 20 — цифры молча считались бы по
+    первой странице и при этом выглядели достоверно.
+
+    Только преподавателю и только про своего ученика: чужая успеваемость
+    никого не касается.
+    """
+    permission_classes = [IsTeacher]
+
+    def get(self, request, pk):
+        student = get_object_or_404(User, pk=pk, teacher=request.user, role=User.ROLE_STUDENT)
+
+        homework = (
+            Homework.objects
+            .filter(Q(teacher=request.user), Q(lesson__students=student) | Q(students=student))
+            .select_related('lesson')
+            .distinct()
+        )
+        submissions = {
+            item.homework_id: item
+            for item in HomeworkSubmission.objects.filter(homework__in=homework, student=student)
+        }
+
+        # Срок «до следующего урока» считается по урокам ученика. Спрашивать их
+        # на каждое задание — тот самый N+1 на всю историю, поэтому берём
+        # времена уроков один раз и ищем ближайшее следующее двоичным поиском.
+        lesson_times = sorted(
+            Lesson.objects
+            .filter(teacher=request.user, students=student, scheduled_at__isnull=False)
+            .values_list('scheduled_at', flat=True)
+        )
+
+        grades = []
+        by_month = {}
+        on_time = late = missed = due_total = 0
+
+        for item in homework:
+            submission = submissions.get(item.id)
+            grade = submission.grade if submission else None
+
+            if grade is not None:
+                grades.append(grade)
+                # Месяц выдачи, а не сдачи: он же стоит на карточке задания
+                key = (item.created_at.year, item.created_at.month)
+                by_month.setdefault(key, []).append(grade)
+
+            due = item.due_at
+            if due is None:
+                anchor = item.lesson.scheduled_at if item.lesson_id else item.created_at
+                if anchor is not None:
+                    following = bisect_right(lesson_times, anchor)
+                    due = lesson_times[following] if following < len(lesson_times) else None
+            if due is None:
+                continue
+
+            # «В срок» — по отметке ученика: принято ли, решает уже преподаватель
+            due_total += 1
+            done_at = submission.done_at if submission else None
+            if done_at is None:
+                missed += 1
+            elif done_at <= due:
+                on_time += 1
+            else:
+                late += 1
+
+        months = [
+            {
+                'name': MONTHS_RU[month - 1],
+                'avg': round(sum(values) / len(values), 2),
+                'percent': round(sum(values) / len(values) / 5 * 100),
+            }
+            for (_, month), values in sorted(by_month.items())[-3:]
+        ]
+
+        return Response({
+            'average': round(sum(grades) / len(grades), 2) if grades else None,
+            'total': len(grades),
+            # От пятёрки к двойке — так же, как рисуется на странице
+            'distribution': [
+                {'value': value, 'count': grades.count(value)}
+                for value in (5, 4, 3, 2)
+                if grades.count(value)
+            ],
+            'on_time': on_time,
+            'late': late,
+            'missed': missed,
+            'due_total': due_total,
+            'months': months,
+        })

@@ -11,5 +11,8 @@
     "resolveJsonModule": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  // Тесты и их конфиг из сборки исключены: иначе `npm run build` тащил бы их
+  // в dist, а прод-образ — заодно и vitest с nock, которые после
+  // `npm prune --omit=dev` уже удалены
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts", "vitest.config.ts"]
 }

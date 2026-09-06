@@ -1,6 +1,8 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 
+from apps.lessons.views import HomeworkStatsView
+
 from .views import (
     LoginView,
     MeView,
@@ -22,6 +24,9 @@ auth_urlpatterns = [
 student_urlpatterns = [
     path('', StudentListCreateView.as_view(), name='student-list'),
     path('<uuid:pk>/', StudentDetailView.as_view(), name='student-detail'),
+    # Успеваемость живёт в домашних заданиях, но спрашивают её со страницы
+    # ученика — маршрут стоит там, где его ищут
+    path('<uuid:pk>/stats/', HomeworkStatsView.as_view(), name='student-stats'),
 ]
 
 # /api/invites/

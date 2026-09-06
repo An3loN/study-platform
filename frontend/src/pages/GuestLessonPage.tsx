@@ -137,8 +137,17 @@ export function GuestLessonPage() {
 
       <form onSubmit={handleJoin}>
         <div className="form-group">
-          <label>Как вас зовут?</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
+          {/* Метку связываем с полем явно: гостевая страница — единственное
+              место, куда попадают люди со стороны, и поле без подписи там
+              экранный диктор не объявит */}
+          <label htmlFor="guest-name">Как вас зовут?</label>
+          <input
+            id="guest-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            autoFocus
+          />
         </div>
         {error && <p className="error-text" style={{ marginBottom: 12 }}>{error}</p>}
         <button type="submit" className="btn-primary" style={{ width: '100%' }} disabled={joining || !name.trim()}>

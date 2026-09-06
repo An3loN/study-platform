@@ -1,12 +1,5 @@
 from django.contrib import admin
-from .models import WhiteboardSnapshot, WhiteboardYjsState
-
-
-@admin.register(WhiteboardSnapshot)
-class WhiteboardSnapshotAdmin(admin.ModelAdmin):
-    list_display = ['lesson', 'version', 'saved_at']
-    list_filter = ['lesson__teacher']
-    readonly_fields = ['version', 'saved_at']
+from .models import WhiteboardYjsState
 
 
 @admin.register(WhiteboardYjsState)

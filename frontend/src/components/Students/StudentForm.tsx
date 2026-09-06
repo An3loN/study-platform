@@ -1,4 +1,7 @@
 import { useState, FormEvent } from 'react'
+import { Field } from '@/components/UI/Field'
+import { Icon } from '@/components/UI/icons'
+import { isPhoneComplete, maskPhone } from '@/utils/phone'
 import type { Student, StudentInput } from '@/types'
 
 interface Props {
@@ -16,7 +19,7 @@ export function StudentForm({ initial, submitLabel = 'Создать', onSubmit,
   const [firstName, setFirstName] = useState(initial?.firstName ?? '')
   const [lastName, setLastName] = useState(initial?.lastName ?? '')
   const [alias, setAlias] = useState(initial?.alias ?? '')
-  const [phone, setPhone] = useState(initial?.phone ?? '')
+  const [phone, setPhone] = useState(maskPhone(initial?.phone ?? ''))
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -26,7 +29,15 @@ export function StudentForm({ initial, submitLabel = 'Создать', onSubmit,
     setError('')
     setSaving(true)
     try {
-      await onSubmit({ firstName, lastName, alias, phone, ...(password ? { password } : {}) })
+      await onSubmit({
+        firstName,
+        lastName,
+        alias,
+        // Поле рисует код страны само, поэтому пустым оно не бывает —
+        // отправляем номер, только когда он действительно набран
+        phone: isPhoneComplete(phone) ? phone : '',
+        ...(password ? { password } : {}),
+      })
     } catch (err) {
       const detail = (err as { response?: { data?: Record<string, string[] | string> } }).response?.data
       const first = detail && Object.values(detail)[0]
@@ -37,47 +48,68 @@ export function StudentForm({ initial, submitLabel = 'Создать', onSubmit,
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <div style={{ display: 'flex', gap: 12 }}>
-        <div className="form-group" style={{ flex: 1 }}>
-          <label>Имя</label>
-          <input value={firstName} onChange={(e) => setFirstName(e.target.value)} autoFocus />
+    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+      <div style={{ display: 'flex', gap: 'var(--space-5)', alignItems: 'flex-start' }}>
+        <div style={{ flex: 1 }}>
+          <Field label="Имя" value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="Лиза" autoFocus />
         </div>
-        <div className="form-group" style={{ flex: 1 }}>
-          <label>Фамилия</label>
-          <input value={lastName} onChange={(e) => setLastName(e.target.value)} />
+        <div style={{ flex: 1 }}>
+          <Field label="Фамилия" value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Ким" />
         </div>
       </div>
 
-      <div className="form-group">
-        <label>Псевдоним</label>
-        <input value={alias} onChange={(e) => setAlias(e.target.value)} placeholder="Как показывать в списке" />
-      </div>
+      <Field
+        label="Псевдоним"
+        value={alias}
+        onChange={(e) => setAlias(e.target.value)}
+        placeholder="Как показывать в списке"
+      />
 
-      <div className="form-group">
-        <label>Телефон</label>
-        <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+7 999 000-00-00" />
-      </div>
+      <Field
+        label="Телефон"
+        icon="smartphone"
+        numeric
+        inputMode="tel"
+        value={phone}
+        onChange={(e) => setPhone(maskPhone(e.target.value))}
+        placeholder="+7 999 000-00-00"
+      />
 
-      <div className="form-group">
-        <label>Пароль</label>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder={initial ? 'Не менять' : 'Ученик задаст сам по ссылке'}
-        />
-      </div>
+      <Field
+        label="Пароль"
+        type="password"
+        icon="lock"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        placeholder={initial ? 'Не менять' : 'Ученик задаст сам по ссылке'}
+      />
 
-      {error && <p className="error-text" style={{ marginBottom: 12 }}>{error}</p>}
+      {!initial && (
+        <div style={{
+          display: 'flex',
+          gap: 'var(--space-5)',
+          padding: 'var(--space-5) var(--space-6)',
+          background: 'var(--surface-brand-soft)',
+          border: 'var(--border-width) solid var(--sky-100)',
+          borderRadius: 'var(--radius-control)',
+          color: 'var(--sky-700)',
+        }}>
+          <Icon name="info" size={18} />
+          <span style={{ flex: 1, font: 'var(--type-caption)', textWrap: 'pretty' }}>
+            После создания покажем ссылку и QR — ученик заполнит данные и задаст пароль сам.
+          </span>
+        </div>
+      )}
 
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button type="submit" className="btn-primary" disabled={saving} style={{ flex: 1 }}>
+      {error && <p className="error-text">{error}</p>}
+
+      <div className="dialog__actions">
+        {onCancel && (
+          <button type="button" className="btn-ghost btn-md" onClick={onCancel}>Отмена</button>
+        )}
+        <button type="submit" className="btn-primary btn-md" disabled={saving}>
           {saving ? 'Сохранение...' : submitLabel}
         </button>
-        {onCancel && (
-          <button type="button" className="btn-secondary" onClick={onCancel}>Отмена</button>
-        )}
       </div>
     </form>
   )

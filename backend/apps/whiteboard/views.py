@@ -7,39 +7,8 @@ from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
 from apps.lessons.models import Lesson
 from apps.users.models import User
-from .models import WhiteboardSnapshot, WhiteboardYjsState
+from .models import WhiteboardYjsState
 from .permissions import IsHocuspocus
-from .serializers import WhiteboardSnapshotSerializer
-
-
-class WhiteboardSnapshotView(APIView):
-    """
-    GET  — последний снапшот урока (для инициализации Excalidraw)
-    POST — сохранить новый снапшот
-    """
-    permission_classes = [IsAuthenticated]
-
-    def _get_lesson(self, lesson_pk):
-        lesson = generics.get_object_or_404(Lesson, pk=lesson_pk)
-        if not lesson.is_participant(self.request.user):
-            self.permission_denied(self.request)
-        return lesson
-
-    def get(self, request, lesson_pk):
-        lesson = self._get_lesson(lesson_pk)
-        snapshot = WhiteboardSnapshot.objects.filter(lesson=lesson).first()
-        if not snapshot:
-            return Response({'data': {}, 'version': 0})
-        return Response(WhiteboardSnapshotSerializer(snapshot).data)
-
-    def post(self, request, lesson_pk):
-        lesson = self._get_lesson(lesson_pk)
-        serializer = WhiteboardSnapshotSerializer(
-            data={**request.data, 'lesson': str(lesson.pk)}
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class ValidateAccessView(APIView):

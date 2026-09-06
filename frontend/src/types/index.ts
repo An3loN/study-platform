@@ -29,6 +29,11 @@ export interface Student {
   isRegistered: boolean
   inviteToken: string | null
   inviteUrl: string | null
+  /** До какой даты действует приглашение. null — ученик уже зарегистрирован */
+  inviteExpiresAt: string | null
+  /** Подставляется в форму нового урока. null — общее значение платформы */
+  defaultLessonDuration: number | null
+  dateJoined: string
 }
 
 export interface StudentInput {
@@ -37,6 +42,7 @@ export interface StudentInput {
   alias?: string
   phone?: string
   password?: string
+  defaultLessonDuration?: number | null
 }
 
 /** pending — не сдано, submitted — ученик отметил, revision — нужны поправки */
@@ -120,6 +126,23 @@ export interface Lesson {
   cancelledByName: string
   /** Очный урок — без доски и без ссылки для входа */
   hasWhiteboard: boolean
+  /** Кто ведёт: ученику важно, с кем занятие */
+  teacherName: string
+  /** Заметки преподавателя. null — смотрит не он */
+  notes: string | null
+}
+
+/** Успеваемость ученика: считается на сервере по всей истории заданий */
+export interface StudentStats {
+  /** null — оценок ещё не ставили */
+  average: number | null
+  total: number
+  distribution: { value: number; count: number }[]
+  onTime: number
+  late: number
+  missed: number
+  dueTotal: number
+  months: { name: string; avg: number; percent: number }[]
 }
 
 /** Заметка с прошлого занятия — только для преподавателя */

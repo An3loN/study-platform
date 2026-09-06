@@ -2,6 +2,7 @@ import { useId, type InputHTMLAttributes } from 'react'
 import { Icon, type IconName } from './icons'
 
 interface Props extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'> {
+  /** Пустая подпись — когда поле стоит под общим заголовком блока */
   label: string
   /** Подсказка под полем. Ошибка её перебивает: одновременно они только шумят */
   hint?: string
