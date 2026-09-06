@@ -1,31 +1,35 @@
 # Выкладка в прод
 
-Образы собирает CI и кладёт в GHCR, сервер их только забирает. Собирать на
-сервере нельзя: сборке фронтенда не хватит двух гигабайт памяти, и она утащит
-за собой работающие контейнеры.
+Образы собирает GitLab CI на своём раннере и кладёт в реестр проекта, сервер
+их только забирает. Собирать на прод-сервере нельзя: сборке фронтенда не хватит
+двух гигабайт памяти, и она утащит за собой работающие контейнеры.
 
 ## Что происходит при пуше в main
 
 1. Три параллельные джобы прогоняют тесты: `pytest`, `npm test` фронтенда и
-   hocuspocus. У фронтенда и hocuspocus следом идёт `npm run build` — не ради
-   артефакта, а ради `tsc`: сломанные типы не должны доезжать до сборки образа.
+   hocuspocus. У обоих фронтов следом `npm run build` — не ради артефакта, а
+   ради `tsc`: сломанные типы не должны доезжать до сборки образа.
 2. Собираются и выкладываются четыре образа — backend, frontend, hocuspocus,
    nginx. Каждый с двумя тегами: по коммиту и `latest`.
-3. `docker-compose.yml` и `deploy.sh` уезжают на сервер, там запускается
-   `deploy.sh` с тегом этого коммита: бэкап базы → `pull` → `up -d` → уборка
-   старых образов.
+3. Джоба выкладки ждёт нажатия. Запущенная, она отправляет на сервер
+   `docker-compose.yml` и `deploy.sh` и вызывает его: бэкап базы → `pull` →
+   `up -d` → уборка старых образов.
 
-Пул-реквесты проходят только тесты — ни сборки, ни выкладки.
+Ветки и мерж-реквесты проходят только тесты.
 
 ## Что нужно один раз
 
-### На сервере
+### Свой раннер
+
+Отдельная машина с docker — не прод-сервер. Всё, что нужно, лежит в
+[`runner/`](../runner/README.md): compose-файл и конфиг. Тег раннера должен
+быть `study-platform` — ровно он стоит у всех джоб.
+
+### Прод-сервер
 
 ```bash
-# Docker и плагин compose
 curl -fsSL https://get.docker.com | sh
 
-# Отдельный пользователь для выкладки
 sudo adduser --disabled-password --gecos "" deploy
 sudo usermod -aG docker deploy
 sudo mkdir -p /opt/study-platform && sudo chown deploy:deploy /opt/study-platform
@@ -36,17 +40,18 @@ sudo mkdir -p /opt/study-platform && sudo chown deploy:deploy /opt/study-platfor
 ```bash
 sudo -u deploy ssh-keygen -t ed25519 -f /home/deploy/.ssh/id_ed25519 -N ""
 sudo -u deploy sh -c 'cat /home/deploy/.ssh/id_ed25519.pub >> /home/deploy/.ssh/authorized_keys'
-sudo -u deploy cat /home/deploy/.ssh/id_ed25519   # это уйдёт в секрет SSH_KEY
+sudo -u deploy cat /home/deploy/.ssh/id_ed25519   # уйдёт в переменную SSH_PRIVATE_KEY
 ```
 
-Доступ к реестру: репозиторий приватный, поэтому нужен токен GitHub с правом
-`read:packages`.
+Доступ к реестру. Проект приватный, поэтому серверу нужен **deploy token** —
+`Settings → Repository → Deploy tokens`, право `read_registry`. Он привязан к
+проекту, а не к человеку, и отзывается одной кнопкой:
 
 ```bash
-sudo -u deploy docker login ghcr.io -u <логин> --password-stdin <<< "<токен>"
+sudo -u deploy docker login registry.gitlab.com -u <имя токена> --password-stdin <<< "<значение>"
 ```
 
-Порты: наружу только 80 и 443.
+Порты наружу — только 80 и 443:
 
 ```bash
 sudo ufw allow OpenSSH && sudo ufw allow 80,443/tcp && sudo ufw enable
@@ -54,7 +59,7 @@ sudo ufw allow OpenSSH && sudo ufw allow 80,443/tcp && sudo ufw enable
 
 ### `.env` на сервере
 
-Создаётся руками в `/opt/study-platform/.env` и не попадает в git никогда.
+Создаётся руками в `/opt/study-platform/.env` и в git не попадает никогда.
 За основу — `.env.example`, но с настоящими значениями:
 
 ```bash
@@ -63,8 +68,9 @@ HOCUSPOCUS_SECRET=$(openssl rand -hex 32)
 POSTGRES_PASSWORD=$(openssl rand -base64 24)
 ```
 
-Обязательно заполнить `APP_DOMAIN`, `ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`
-и `CSRF_TRUSTED_ORIGINS` своим доменом.
+Обязательно заполнить `APP_DOMAIN`, `ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`,
+`CSRF_TRUSTED_ORIGINS` своим доменом и `REGISTRY_IMAGE` — адресом реестра
+проекта.
 
 ### Первый запуск и сертификат
 
@@ -106,20 +112,26 @@ docker compose restart nginx
 docker compose exec backend python manage.py createsuperuser --phone +79990000000
 ```
 
-### Секреты в GitHub
+### Переменные в GitLab
 
-`Settings → Secrets and variables → Actions`:
+`Settings → CI/CD → Variables`. Все — **Protected** (доступны только защищённым
+веткам, то есть main) и **Masked** там, где это секрет.
 
-| Секрет | Что это |
-|---|---|
-| `SSH_HOST` | IP или домен сервера |
-| `SSH_USER` | `deploy` |
-| `SSH_KEY` | приватный ключ целиком, вместе со строками `BEGIN`/`END` |
-| `SSH_PORT` | если ssh не на 22; иначе не заводить |
-| `DEPLOY_PATH` | `/opt/study-platform` |
+| Переменная | Тип | Что это |
+|---|---|---|
+| `SSH_PRIVATE_KEY` | File | приватный ключ пользователя `deploy` целиком |
+| `SSH_KNOWN_HOSTS` | File | вывод `ssh-keyscan <хост>` |
+| `SSH_HOST` | Variable | IP или домен сервера |
+| `SSH_USER` | Variable | `deploy` |
+| `SSH_PORT` | Variable | если ssh не на 22; иначе не заводить |
+| `DEPLOY_PATH` | Variable | `/opt/study-platform` |
+| `APP_DOMAIN` | Variable | домен, для ссылки на окружение в интерфейсе |
 
-Токен реестра отдельно не нужен: сборка ходит в GHCR под встроенным
-`GITHUB_TOKEN`.
+Учётных данных для реестра заводить не нужно: сборка ходит туда встроенным
+job-токеном.
+
+`SSH_KNOWN_HOSTS` заполняется один раз и не сканируется на каждом запуске —
+так подмена ключа сервера не пройдёт незамеченной.
 
 ## Откат
 
@@ -130,8 +142,8 @@ cd /opt/study-platform && IMAGE_TAG=<sha предыдущего коммита> 
 ```
 
 Откат кода миграции не отменяет. Если сломала именно миграция — восстанавливать
-из бэкапа, он лежит в `/opt/study-platform/backups/` и снимается перед каждой
-выкладкой (хранятся последние 14).
+из бэкапа: `/opt/study-platform/backups/`, снимается перед каждой выкладкой,
+хранятся последние 14.
 
 ## Чего здесь осознанно нет
 
@@ -145,6 +157,3 @@ celery up -d`, и заодно добавить профиль в `deploy.sh`.
 
 **Бэкапы лежат на том же сервере.** От неудачной миграции это спасает, от
 потери сервера — нет. Если данные станут важны, копию надо увозить наружу.
-
-**`ssh-keyscan` на каждом запуске** доверяет ключу сервера при первом
-подключении. Строже — положить `known_hosts` в секрет и не сканировать.

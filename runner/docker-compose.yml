@@ -1,0 +1,52 @@
+# GitLab-раннер. Живёт на отдельной машине, не на прод-сервере: сборке
+# фронтенда нужно около двух гигабайт только на себя, и на проде она
+# конкурировала бы за память с работающим сайтом.
+#
+# Сам раннер почти ничего не делает — он лишь принимает джобы и просит docker
+# создать под каждую контейнер. Тяжёлое происходит в этих контейнерах.
+#
+#   cp config.toml.example config/config.toml   # и вписать токен
+#   docker compose up -d
+
+services:
+
+  runner:
+    # Версия закреплена: раннер и gitlab.com должны совпадать по мажорной
+    # версии, а «latest» однажды уедет вперёд и джобы начнут падать молча
+    image: gitlab/gitlab-runner:v17.7.0
+    container_name: gitlab-runner
+    restart: always
+    volumes:
+      # Конфиг снаружи, чтобы правки не требовали пересоздания контейнера
+      - ./config:/etc/gitlab-runner
+      # Раннер создаёт контейнеры джоб через демон хоста — отсюда сокет.
+      # Это осознанный размен: джоба получает полный доступ к docker хоста,
+      # то есть фактически root на этой машине. На сборочном сервере, где
+      # выполняется только свой код, это приемлемо, а взамен кеш слоёв
+      # переживает джобы и не нужен привилегированный docker-in-docker.
+      - /var/run/docker.sock:/var/run/docker.sock
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Уборка. Раннер оставляет за собой образы и кеш сборок, и диск кончится
+  # незаметно. Трогаем только то, чему больше недели: свежий `latest` нужен
+  # как источник слоёв для `--cache-from`.
+  prune:
+    image: docker:27-cli
+    container_name: gitlab-runner-prune
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    entrypoint: >
+      sh -c "while :; do
+               docker system prune -af --filter until=168h;
+               sleep 24h;
+             done"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

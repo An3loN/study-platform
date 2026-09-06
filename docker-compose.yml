@@ -7,13 +7,16 @@
 # работающие контейнеры.
 #
 # IMAGE_TAG подставляет CI при деплое; локально по умолчанию latest.
+# REGISTRY_IMAGE — адрес реестра проекта в GitLab, вида
+# registry.gitlab.com/<пространство>/study-platform. Без него имена образов
+# остаются локальными, и `docker compose build` работает как обычно.
 
 services:
 
   # ── Reverse proxy + TLS ─────────────────────────────────────────────────────
   nginx:
     build: ./nginx
-    image: ghcr.io/an3lon/study-platform-nginx:${IMAGE_TAG:-latest}
+    image: ${REGISTRY_IMAGE:-study-platform}/nginx:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "80:80"
@@ -52,13 +55,13 @@ services:
   # ── React SPA (собранная статика в своём nginx) ────────────────────────────
   frontend:
     build: ./frontend
-    image: ghcr.io/an3lon/study-platform-frontend:${IMAGE_TAG:-latest}
+    image: ${REGISTRY_IMAGE:-study-platform}/frontend:${IMAGE_TAG:-latest}
     restart: unless-stopped
 
   # ── Django ASGI (Daphne) ────────────────────────────────────────────────────
   backend:
     build: ./backend
-    image: ghcr.io/an3lon/study-platform-backend:${IMAGE_TAG:-latest}
+    image: ${REGISTRY_IMAGE:-study-platform}/backend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     command: sh entrypoint.sh
     env_file: .env
@@ -85,7 +88,7 @@ services:
   # ── Hocuspocus (Yjs) ────────────────────────────────────────────────────────
   hocuspocus:
     build: ./hocuspocus
-    image: ghcr.io/an3lon/study-platform-hocuspocus:${IMAGE_TAG:-latest}
+    image: ${REGISTRY_IMAGE:-study-platform}/hocuspocus:${IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file: .env
     depends_on:
@@ -101,7 +104,7 @@ services:
   #   docker compose --profile celery up -d
   celery:
     build: ./backend
-    image: ghcr.io/an3lon/study-platform-backend:${IMAGE_TAG:-latest}
+    image: ${REGISTRY_IMAGE:-study-platform}/backend:${IMAGE_TAG:-latest}
     profiles: ["celery"]
     restart: unless-stopped
     command: celery -A config worker -l info --concurrency=2
