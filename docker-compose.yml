@@ -1,11 +1,26 @@
+# Прод-стек.
+#
+# У сервисов приложения указаны и `image`, и `build`: на сервере образы
+# забираются из реестра (`docker compose pull`), а собрать их локально для
+# проверки по-прежнему можно тем же файлом (`docker compose build`). Собирать
+# на сервере нельзя: сборке фронтенда не хватит памяти, и она утащит за собой
+# работающие контейнеры.
+#
+# IMAGE_TAG подставляет CI при деплое; локально по умолчанию latest.
+
 services:
 
-  # ── Reverse proxy ───────────────────────────────────────────────────────────
+  # ── Reverse proxy + TLS ─────────────────────────────────────────────────────
   nginx:
     build: ./nginx
+    image: ghcr.io/an3lon/study-platform-nginx:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
+    environment:
+      # Домен подставляется в конфиг при старте — см. nginx/templates
+      APP_DOMAIN: ${APP_DOMAIN}
     depends_on:
       - backend
       - frontend
@@ -13,15 +28,37 @@ services:
     volumes:
       - static_files:/app/staticfiles:ro
       - media_files:/app/media:ro
+      - letsencrypt:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
 
-  # ── React SPA (built, served by nginx) ─────────────────────────────────────
+  # ── Выпуск и продление сертификатов ─────────────────────────────────────────
+  # Продлевает раз в двенадцать часов. Let's Encrypt обновляет сертификат
+  # только на последнем месяце, поэтому лишние попытки ничего не стоят, а
+  # пропустить окно при таком расписании трудно. Перечитывает конфигурацию
+  # сам nginx, по своему таймеру.
+  certbot:
+    image: certbot/certbot:latest
+    restart: unless-stopped
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    entrypoint: >
+      sh -c "trap exit TERM;
+             while :; do
+               certbot renew --webroot -w /var/www/certbot --quiet;
+               sleep 12h & wait $${!};
+             done"
+
+  # ── React SPA (собранная статика в своём nginx) ────────────────────────────
   frontend:
     build: ./frontend
+    image: ghcr.io/an3lon/study-platform-frontend:${IMAGE_TAG:-latest}
     restart: unless-stopped
 
   # ── Django ASGI (Daphne) ────────────────────────────────────────────────────
   backend:
     build: ./backend
+    image: ghcr.io/an3lon/study-platform-backend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     command: sh entrypoint.sh
     env_file: .env
@@ -35,10 +72,20 @@ services:
     volumes:
       - static_files:/app/staticfiles
       - media_files:/app/media
+    healthcheck:
+      # Без обращения к базе: проверяем, что ASGI отвечает, а не что всё
+      # приложение здорово — иначе healthcheck начнёт врать при первой же
+      # нагрузке на postgres
+      test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.create_connection(('127.0.0.1',8000),2); s.close()\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
 
-  # ── Hocuspocus (Yjs collaboration server) ──────────────────────────────────
+  # ── Hocuspocus (Yjs) ────────────────────────────────────────────────────────
   hocuspocus:
     build: ./hocuspocus
+    image: ghcr.io/an3lon/study-platform-hocuspocus:${IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file: .env
     depends_on:
@@ -48,8 +95,14 @@ services:
         condition: service_started
 
   # ── Celery worker ───────────────────────────────────────────────────────────
+  # Под профилем, то есть по умолчанию не поднимается: задач у Celery пока нет
+  # ни одной (см. CLAUDE.md), а воркер с concurrency=2 съедает около трёхсот
+  # мегабайт из двух гигабайт сервера. Появятся задачи — включать так:
+  #   docker compose --profile celery up -d
   celery:
     build: ./backend
+    image: ghcr.io/an3lon/study-platform-backend:${IMAGE_TAG:-latest}
+    profiles: ["celery"]
     restart: unless-stopped
     command: celery -A config worker -l info --concurrency=2
     env_file: .env
@@ -79,7 +132,12 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: redis-server --save 60 1 --loglevel warning
+    # Память ограничена намеренно: Redis держит только состояние доски и
+    # очередь Celery, а на сервере с двумя гигабайтами он не должен вытеснить
+    # приложение
+    command: >
+      redis-server --save 60 1 --loglevel warning
+                   --maxmemory 128mb --maxmemory-policy noeviction
     volumes:
       - redis_data:/data
     healthcheck:
@@ -93,3 +151,5 @@ volumes:
   redis_data:
   static_files:
   media_files:
+  letsencrypt:
+  certbot_www:
