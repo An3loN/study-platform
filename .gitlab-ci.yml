@@ -1,0 +1,139 @@
+# Пайплайн GitLab.
+#
+# Всё крутится на своём раннере — отсюда тег `study-platform` у каждой джобы.
+# Тег не украшение: без него джоба уедет на общие раннеры gitlab.com и съест
+# бесплатные минуты, ради экономии которых свой раннер и заводился.
+#
+# Собирает и выкладывает только main. Ветки и мерж-реквесты проходят тесты.
+
+stages:
+  - test
+  - build
+  - deploy
+
+variables:
+  # Образы лежат в реестре самого проекта: отдельных учётных данных для сборки
+  # не нужно, CI ходит туда своим job-токеном
+  REGISTRY: $CI_REGISTRY_IMAGE
+  # Тег образа — sha коммита. Откат сводится к повтору выкладки с прежним sha
+  IMAGE_TAG: $CI_COMMIT_SHA
+  DOCKER_DRIVER: overlay2
+
+default:
+  tags:
+    - study-platform
+
+# ── Тесты ─────────────────────────────────────────────────────────────────────
+
+test:backend:
+  stage: test
+  image: python:3.12-slim
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+  variables:
+    POSTGRES_DB: studyplatform
+    POSTGRES_USER: studyplatform
+    POSTGRES_PASSWORD: studyplatform
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
+    # Настройки читаются через decouple: без .env он берёт их из окружения.
+    # Перечислено всё, у чего в base.py нет значения по умолчанию, — иначе
+    # Django падает на импорте настроек ещё до первого теста
+    SECRET_KEY: ci-secret-not-used-anywhere-else
+    HOCUSPOCUS_SECRET: ci-secret-not-used-anywhere-else
+    # Виртуальное окружение внутри проекта — иначе оно уедет в домашнюю папку,
+    # которую кеш между джобами не переносит
+    POETRY_VIRTUALENVS_IN_PROJECT: "true"
+  cache:
+    key:
+      files: [backend/poetry.lock]
+    paths: [backend/.venv]
+  before_script:
+    - pip install --quiet poetry==1.8.5
+  script:
+    - cd backend
+    - poetry install --no-root
+    - poetry run pytest -q
+
+test:frontend:
+  stage: test
+  image: node:20-alpine
+  cache:
+    key:
+      files: [frontend/package-lock.json]
+    paths: [frontend/node_modules]
+  script:
+    - cd frontend
+    - npm ci
+    - npm test
+    # Сборка здесь не ради артефакта, а ради tsc: сломанные типы не должны
+    # доезжать до сборки образа
+    - npm run build
+
+test:hocuspocus:
+  stage: test
+  image: node:20-alpine
+  cache:
+    key:
+      files: [hocuspocus/package-lock.json]
+    paths: [hocuspocus/node_modules]
+  script:
+    - cd hocuspocus
+    - npm ci
+    - npm test
+    - npm run build
+
+# ── Сборка образов ────────────────────────────────────────────────────────────
+
+build:
+  stage: build
+  image: docker:27
+  services:
+    - docker:27-dind
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  parallel:
+    matrix:
+      - SERVICE: [backend, frontend, hocuspocus, nginx]
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+  script:
+    # Предыдущий образ как источник слоёв: у dind своя файловая система, и без
+    # этого каждая сборка начиналась бы с нуля. `|| true` — на первый запуск,
+    # когда тянуть ещё нечего.
+    - docker pull "$REGISTRY/$SERVICE:latest" || true
+    - >
+      docker build
+      --cache-from "$REGISTRY/$SERVICE:latest"
+      --build-arg BUILDKIT_INLINE_CACHE=1
+      -t "$REGISTRY/$SERVICE:$IMAGE_TAG"
+      -t "$REGISTRY/$SERVICE:latest"
+      "./$SERVICE"
+    - docker push "$REGISTRY/$SERVICE:$IMAGE_TAG"
+    - docker push "$REGISTRY/$SERVICE:latest"
+
+# ── Выкладка ──────────────────────────────────────────────────────────────────
+
+deploy:
+  stage: deploy
+  image: alpine:3.20
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      # Ручной запуск: выкладку начинает человек, нажав кнопку в пайплайне.
+      # На GitLab это бесплатно, в отличие от подтверждений в GitHub.
+      when: manual
+  environment:
+    name: production
+    url: https://$APP_DOMAIN
+  before_script:
+    - apk add --no-cache openssh-client
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - cp "$SSH_PRIVATE_KEY" ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+    - cp "$SSH_KNOWN_HOSTS" ~/.ssh/known_hosts && chmod 644 ~/.ssh/known_hosts
+  script:
+    # Серверу нужны только два файла проекта, всё остальное приезжает образами.
+    # `.env` лежит на сервере и не трогается никогда.
+    - scp -P "${SSH_PORT:-22}" docker-compose.yml deploy/deploy.sh "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/"
+    - ssh -p "${SSH_PORT:-22}" "$SSH_USER@$SSH_HOST" "chmod +x $DEPLOY_PATH/deploy.sh"
+    - ssh -p "${SSH_PORT:-22}" "$SSH_USER@$SSH_HOST" "cd $DEPLOY_PATH && IMAGE_TAG=$IMAGE_TAG ./deploy.sh"
