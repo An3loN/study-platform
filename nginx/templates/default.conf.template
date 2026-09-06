@@ -1,10 +1,53 @@
+# Прод-конфиг. Домен подставляется из переменной APP_DOMAIN при старте
+# контейнера (см. nginx/Dockerfile): образ один, а стендов может быть несколько.
+#
+# Подставляются только переменные с префиксом APP_ — фильтр задан в Dockerfile.
+# Иначе envsubst съел бы и $http_host, и $uri, и всё остальное, что nginx
+# считает своими переменными.
+
 upstream backend    { server backend:8000; }
 upstream hocuspocus { server hocuspocus:1234; }
 upstream frontend   { server frontend:80; }
 
+# ── HTTP: только проверка Let's Encrypt и переезд на HTTPS ───────────────────
 server {
     listen 80;
-    server_name _;
+    server_name ${APP_DOMAIN} www.${APP_DOMAIN};
+
+    # ACME-проверка должна отвечать по http и до всякого редиректа: certbot
+    # ходит именно сюда, и увести его на https значит не получить сертификат
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type "text/plain";
+    }
+
+    location / {
+        return 301 https://${APP_DOMAIN}$request_uri;
+    }
+}
+
+# ── www → основной домен ─────────────────────────────────────────────────────
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name www.${APP_DOMAIN};
+
+    ssl_certificate     /etc/letsencrypt/live/${APP_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${APP_DOMAIN}/privkey.pem;
+    include /etc/nginx/ssl-params.conf;
+
+    return 301 https://${APP_DOMAIN}$request_uri;
+}
+
+# ── Само приложение ──────────────────────────────────────────────────────────
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${APP_DOMAIN};
+
+    ssl_certificate     /etc/letsencrypt/live/${APP_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${APP_DOMAIN}/privkey.pem;
+    include /etc/nginx/ssl-params.conf;
 
     client_max_body_size 50M;
 
@@ -19,6 +62,8 @@ server {
 
     add_header X-Frame-Options    "SAMEORIGIN"  always;
     add_header X-Content-Type-Options "nosniff" always;
+    # Полгода: меньше не имеет смысла, больше — рискованно, пока домен молодой
+    add_header Strict-Transport-Security "max-age=15768000" always;
 
     # ── Статика Django ────────────────────────────────────────────────────────
     location /static/ {
@@ -43,7 +88,6 @@ server {
         proxy_set_header   X-Forwarded-Proto $scheme;
         proxy_redirect     off;
     }
-
 
     # ── Hocuspocus WebSocket (Excalidraw / Yjs) ───────────────────────────────
     # HocuspocusProvider обрезает завершающий слэш, поэтому ловим и /board, и /board/.
