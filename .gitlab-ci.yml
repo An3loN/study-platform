@@ -17,7 +17,6 @@ variables:
   REGISTRY: $CI_REGISTRY_IMAGE
   # Тег образа — sha коммита. Откат сводится к повтору выкладки с прежним sha
   IMAGE_TAG: $CI_COMMIT_SHA
-  DOCKER_DRIVER: overlay2
 
 default:
   tags:
@@ -88,9 +87,10 @@ test:hocuspocus:
 
 build:
   stage: build
-  image: docker:27
-  services:
-    - docker:27-dind
+  # docker-in-docker не нужен: раннеру отдан сокет хоста, и клиент в этом
+  # образе говорит с демоном напрямую. Заодно слои остаются между сборками —
+  # см. runner/config.toml.example
+  image: docker:27-cli
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
   parallel:
@@ -99,9 +99,9 @@ build:
   before_script:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
   script:
-    # Предыдущий образ как источник слоёв: у dind своя файловая система, и без
-    # этого каждая сборка начиналась бы с нуля. `|| true` — на первый запуск,
-    # когда тянуть ещё нечего.
+    # Предыдущий образ как источник слоёв — на случай, если локального кеша
+    # ещё нет: чистая машина, уборка или первый запуск. `|| true` — когда
+    # тянуть нечего.
     - docker pull "$REGISTRY/$SERVICE:latest" || true
     - >
       docker build

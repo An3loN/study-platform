@@ -21,40 +21,9 @@
 
 ### Свой раннер
 
-Отдельная машина с docker — не прод-сервер. Сборке фронтенда нужно около двух
-гигабайт только на себя.
-
-```bash
-curl -L "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh" | sudo bash
-sudo apt install gitlab-runner
-
-sudo gitlab-runner register \
-  --non-interactive \
-  --url https://gitlab.com \
-  --token <токен из Settings → CI/CD → Runners> \
-  --executor docker \
-  --docker-image docker:27 \
-  --docker-privileged \
-  --tag-list study-platform
-```
-
-`--docker-privileged` нужен для docker-in-docker: сборка образов идёт внутри
-джобы. Если машина личная и изолировать нечего, вместо привилегий можно отдать
-раннеру сокет хоста — так ещё и кеш слоёв переживает джобы:
-
-```toml
-# /etc/gitlab-runner/config.toml
-[runners.docker]
-  privileged = false
-  volumes = ["/var/run/docker.sock:/var/run/docker.sock", "/cache"]
-```
-
-Тогда из `.gitlab-ci.yml` надо убрать `services: [docker:27-dind]` у джобы
-`build`.
-
-Тег `study-platform` обязателен: он стоит у всех джоб в `.gitlab-ci.yml`, и
-без совпадения они уедут на общие раннеры gitlab.com — то есть съедят
-бесплатные минуты, ради экономии которых свой раннер и заводился.
+Отдельная машина с docker — не прод-сервер. Всё, что нужно, лежит в
+[`runner/`](../runner/README.md): compose-файл и конфиг. Тег раннера должен
+быть `study-platform` — ровно он стоит у всех джоб.
 
 ### Прод-сервер
 
