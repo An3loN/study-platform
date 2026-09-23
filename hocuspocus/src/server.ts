@@ -2,7 +2,7 @@ import * as Y from 'yjs'
 import { Server, onAuthenticatePayload, onLoadDocumentPayload, onStoreDocumentPayload } from '@hocuspocus/server'
 import { Redis } from '@hocuspocus/extension-redis'
 import { validateAccess, loadYjsState, saveYjsState } from './api.js'
-import { pruneUnusedFiles } from './cleanup.js'
+import { pruneUnusedFilesIfIdle } from './cleanup.js'
 import type { ConnectionContext } from './types.js'
 
 const PORT = parseInt(process.env.HOCUSPOCUS_PORT ?? '1234', 10)
@@ -39,6 +39,13 @@ const server = Server.configure({
       const update = Buffer.from(base64State, 'base64')
       Y.applyUpdate(document, update)
       console.log(`[persistence] Состояние загружено для комнаты ${documentName}`)
+      // Первый клиент ещё не подключён — комната пуста, чистить можно. Здесь
+      // чистка гарантирована: при уходе последнего она случается, только если
+      // оставалось несохранённое, а после тихого конца урока его нет
+      const removed = pruneUnusedFilesIfIdle(document)
+      if (removed > 0) {
+        console.log(`[cleanup] ${documentName}: при загрузке удалено ненужных картинок — ${removed}`)
+      }
     } else {
       console.log(`[persistence] Новая комната ${documentName}, состояние пустое`)
     }
@@ -46,12 +53,14 @@ const server = Server.configure({
   },
 
   /**
-   * onStoreDocument — вызывается когда все клиенты отключились от документа.
-   * Сохраняем финальное Yjs-состояние в Django.
+   * onStoreDocument — через 2–10 секунд после правок (debounce Hocuspocus) и
+   * сразу, когда отключился последний клиент. Сохраняем Yjs-состояние в Django.
    */
   async onStoreDocument({ documentName, document }: onStoreDocumentPayload): Promise<void> {
     const sizeBefore = Y.encodeStateAsUpdate(document).length
-    const removed = pruneUnusedFiles(document)
+    // Картинки чистим только в пустой комнате: посреди урока их ещё может
+    // вернуть Ctrl+Z (см. cleanup.ts)
+    const removed = pruneUnusedFilesIfIdle(document)
 
     const update = Y.encodeStateAsUpdate(document)
     if (removed > 0) {
@@ -73,7 +82,7 @@ const server = Server.configure({
     new Redis({
       host: REDIS_HOST,
       port: REDIS_PORT,
-      // Используем отдельную DB (2) чтобы не конфликтовать с Django Channels (0) и Celery (1)
+      // Отдельная DB (2): в 1 очередь Celery, в 3 кеш Django
       options: { db: 2 },
     }),
   ],
