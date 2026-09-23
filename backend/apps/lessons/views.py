@@ -1,3 +1,4 @@
+import uuid
 from bisect import bisect_right
 from datetime import datetime, time, timedelta
 
@@ -9,6 +10,7 @@ from django.utils.dateparse import parse_date, parse_datetime
 from rest_framework import exceptions, generics, permissions, status
 from rest_framework.parsers import FormParser, MultiPartParser, JSONParser
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import AccessToken
 
@@ -74,6 +76,17 @@ def parse_bool(value, default=False):
     return str(value).strip().lower() in ('true', '1', 'yes', 'on')
 
 
+def uuid_param(value, field):
+    """
+    Идентификатор из запроса. Не-UUID — это 400: ORM на нём падает
+    ValidationError из Django, а её DRF не узнаёт и отвечает 500.
+    """
+    try:
+        return uuid.UUID(str(value))
+    except ValueError:
+        raise exceptions.ValidationError({field: 'Ожидается идентификатор (UUID).'})
+
+
 def lessons_for(user):
     if user.is_teacher:
         return Lesson.objects.filter(teacher=user)
@@ -118,7 +131,7 @@ class LessonListCreateView(generics.ListCreateAPIView):
         params = self.request.query_params
 
         if params.get('student'):
-            queryset = queryset.filter(students__id=params['student'])
+            queryset = queryset.filter(students__id=uuid_param(params['student'], 'student'))
 
         # Промежуток: урок без даты в него не попадает — его ещё не назначили
         start = parse_moment(params.get('from'))
@@ -266,6 +279,8 @@ class LessonShareInfoView(APIView):
 class LessonGuestJoinView(APIView):
     """Публично: представился именем — получил гостевой доступ к доске."""
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'join'
 
     def post(self, request, share_token):
         lesson = get_live_lesson(share_token)
@@ -361,6 +376,10 @@ class HomeworkDoneView(APIView):
 
     def post(self, request, pk):
         homework = get_homework_for(request.user, pk)
+        # Доступ к заданию есть и у преподавателя, но отмечаться ему не за
+        # что: без этой проверки появлялась «сдача» от его имени
+        if not homework.student_set.filter(pk=request.user.pk).exists():
+            raise exceptions.PermissionDenied('Отмечать выполнение может только тот, кому задано.')
 
         done = parse_bool(request.data.get('done'), default=True)
         submission, _ = HomeworkSubmission.objects.get_or_create(
@@ -397,6 +416,7 @@ class HomeworkReviewView(APIView):
         student_id = request.data.get('student')
         if not student_id:
             return Response({'detail': 'Не указан ученик.'}, status=status.HTTP_400_BAD_REQUEST)
+        student_id = uuid_param(student_id, 'student')
         if not homework.student_set.filter(pk=student_id).exists():
             return Response({'detail': 'Этому ученику задание не задавали.'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -457,6 +477,7 @@ class HomeworkMessageListCreateView(generics.ListCreateAPIView):
         student_id = self.request.query_params.get('student') or self.request.data.get('student')
         if not student_id:
             raise exceptions.ValidationError({'detail': 'Не указан ученик.'})
+        student_id = uuid_param(student_id, 'student')
         if not homework.student_set.filter(pk=student_id).exists():
             raise exceptions.ValidationError({'detail': 'Этому ученику задание не задавали.'})
         return student_id
@@ -507,6 +528,7 @@ class MyHomeworkListView(generics.ListCreateAPIView):
         # Адресат берётся из урока или из самого задания, поэтому условий два.
         student = self.request.query_params.get('student')
         if student:
+            student = uuid_param(student, 'student')
             queryset = queryset.filter(Q(lesson__students__id=student) | Q(students__id=student))
 
         return queryset.distinct()

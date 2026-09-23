@@ -109,6 +109,27 @@ REST_FRAMEWORK = {
     ),
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+    # Частота запросов к тому, что открыто без входа и где есть что подбирать:
+    # пароль на /auth/login/, регистрация и гостевой вход по ссылке. Считается
+    # по IP (ScopedRateThrottle во вьюхах).
+    'DEFAULT_THROTTLE_RATES': {
+        'login': '10/min',
+        # Гостей бывает целый класс за одним NAT школы — лимит щедрее
+        'join': '60/min',
+    },
+    # Перед Django стоит ровно один nginx. Без этого DRF брал бы весь
+    # X-Forwarded-For целиком, а его начало клиент пишет сам — подставляя
+    # каждый раз новое значение, он обходил бы лимит.
+    'NUM_PROXIES': 1,
+}
+
+# Кеш нужен лимитам частоты запросов. Redis, а не память процесса: счётчики
+# должны быть общими для всех воркеров и переживать перезапуск.
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': config('CACHE_URL', default='redis://redis:6379/3'),
+    },
 }
 
 SIMPLE_JWT = {

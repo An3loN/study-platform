@@ -110,7 +110,33 @@ class User(AbstractUser):
 
     def save(self, *args, **kwargs):
         self.phone = normalize_phone(self.phone)
+        # set_password запоминает новый пароль в _password до сохранения —
+        # так Django узнаёт о смене; при перехешировании на входе он его
+        # сбрасывает, и сессии там не гасятся
+        password_changed = self._password is not None and not self._state.adding
         super().save(*args, **kwargs)
+        if password_changed:
+            self.revoke_sessions()
+
+    def revoke_sessions(self):
+        """
+        Гасит все refresh-токены: вход везде придётся повторить.
+
+        Зовётся при любой смене пароля — из карточки ученика, из админки,
+        откуда угодно. Сбрасывает пароль преподаватель, и обычно как раз
+        потому, что доступ ушёл в чужие руки, а refresh, выданный до сброса,
+        иначе жил бы ещё неделю. Access-токены доживают свой час: они нигде
+        не хранятся, и отозвать их нечем.
+        """
+        from rest_framework_simplejwt.token_blacklist.models import (
+            BlacklistedToken,
+            OutstandingToken,
+        )
+        live = OutstandingToken.objects.filter(user=self, blacklistedtoken__isnull=True)
+        BlacklistedToken.objects.bulk_create(
+            [BlacklistedToken(token=token) for token in live],
+            ignore_conflicts=True,
+        )
 
     def clean(self):
         # AbstractBaseUser.clean() прогоняет USERNAME_FIELD через

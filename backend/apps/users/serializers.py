@@ -12,6 +12,7 @@ def issue_tokens(user):
     return {'access': str(refresh.access_token), 'refresh': str(refresh)}
 
 
+
 class UserPublicSerializer(serializers.ModelSerializer):
     display_name = serializers.CharField(read_only=True)
 
@@ -40,7 +41,13 @@ class LoginSerializer(serializers.Serializer):
     def validate(self, attrs):
         phone = normalize_phone(attrs['phone'])
         user = User.objects.filter(phone=phone).first()
-        if not user or not user.is_active or not user.check_password(attrs['password']):
+        if user is None:
+            # Хешируем впустую, как ModelBackend: без этого на незнакомый
+            # номер ответ приходил заметно быстрее, и по времени было видно,
+            # зарегистрирован ли телефон
+            User().set_password(attrs['password'])
+            raise AuthenticationFailed('Неверный телефон или пароль.')
+        if not user.check_password(attrs['password']) or not user.is_active:
             raise AuthenticationFailed('Неверный телефон или пароль.')
         return issue_tokens(user)
 
