@@ -1,7 +1,7 @@
 import axios from 'axios'
 import MockAdapter from 'axios-mock-adapter'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { http } from './api'
+import { http, studentsApi } from './api'
 
 /**
  * Транспортный слой: конвертация ключей и обработка 401.
@@ -203,6 +203,66 @@ describe('401 на обычном запросе', () => {
     expect(onHttp.history.get).toHaveLength(2)
   })
 
+  it('на несколько 401 разом обновляет токен один раз', async () => {
+    // Access протух, а страница шлёт запросы пачкой. Сервер ротирует refresh
+    // и вносит старый в блэклист: второй рефреш с ним же получил бы 401 и
+    // выкинул бы пользователя на вход посреди работы
+    localStorage.setItem('access_token', 'протухший')
+    localStorage.setItem('refresh_token', 'годный')
+    onHttp.onGet('/students/').replyOnce(401, {})
+    onHttp.onGet('/homework/').replyOnce(401, {})
+    onHttp.onGet('/lessons/').replyOnce(401, {})
+    onHttp.onGet().reply((config) => (
+      config.headers?.Authorization === 'Bearer свежий' ? [200, { ok: true }] : [401, {}]
+    ))
+    onBareAxios.onPost('/api/auth/refresh/').replyOnce(200, { access: 'свежий', refresh: 'новый' })
+    onBareAxios.onPost('/api/auth/refresh/').reply(401, { detail: 'Token is blacklisted' })
+
+    const results = await Promise.all([
+      http.get('/students/'), http.get('/homework/'), http.get('/lessons/'),
+    ])
+
+    expect(results.map((r) => r.data)).toEqual([{ ok: true }, { ok: true }, { ok: true }])
+    expect(onBareAxios.history.post).toHaveLength(1)
+    expect(window.location.href).toBe('')
+    expect(localStorage.getItem('refresh_token')).toBe('новый')
+  })
+
+  it('запрос со старым токеном после рефреша повторяется без нового рефреша', async () => {
+    // Ответ 401 пришёл, когда токен уже обновил кто-то другой
+    localStorage.setItem('access_token', 'протухший')
+    localStorage.setItem('refresh_token', 'годный')
+    onHttp.onGet('/students/').replyOnce(() => {
+      localStorage.setItem('access_token', 'свежий')
+      return [401, {}]
+    })
+    onHttp.onGet('/students/').replyOnce(200, {})
+
+    await http.get('/students/')
+
+    expect(onBareAxios.history.post).toHaveLength(0)
+    expect(onHttp.history.get[1].headers?.Authorization).toBe('Bearer свежий')
+  })
+
+  it('следующий рефреш после завершённого идёт заново', async () => {
+    // Общий рефреш живёт, только пока идёт: через час токен снова протухнет
+    localStorage.setItem('refresh_token', 'годный')
+    onHttp.onGet('/students/').replyOnce(401, {})
+    onHttp.onGet('/students/').replyOnce(200, {})
+    onBareAxios.onPost('/api/auth/refresh/').replyOnce(200, { access: 'первый', refresh: 'второй' })
+    await http.get('/students/')
+
+    localStorage.setItem('access_token', 'первый')
+    onHttp.onGet('/students/').replyOnce(401, {})
+    onHttp.onGet('/students/').replyOnce(200, {})
+    onBareAxios.onPost('/api/auth/refresh/').replyOnce(200, { access: 'второй' })
+    await http.get('/students/')
+
+    expect(onBareAxios.history.post).toHaveLength(2)
+    expect(JSON.parse(onBareAxios.history.post[1].data)).toEqual({ refresh: 'второй' })
+    expect(localStorage.getItem('access_token')).toBe('второй')
+  })
+
   it('другие ошибки проходят мимо обработчика', async () => {
     localStorage.setItem('refresh_token', 'годный')
     onHttp.onGet('/students/').reply(500, {})
@@ -232,5 +292,28 @@ describe('заголовок Authorization', () => {
     await http.get('/lessons/')
 
     expect(onHttp.history.get[0].headers?.Authorization).toBeUndefined()
+  })
+})
+
+// ── Списки целиком ───────────────────────────────────────────────────────────
+
+describe('все страницы списка', () => {
+  it('идёт по страницам, пока есть следующая', async () => {
+    // Ученики нужны целиком: раньше в списке оставались первые двадцать
+    onHttp.onGet('/students/', { params: { page: 1, page_size: 100 } })
+      .reply(200, { count: 3, next: 'есть', previous: null, results: [{ id: '1' }, { id: '2' }] })
+    onHttp.onGet('/students/', { params: { page: 2, page_size: 100 } })
+      .reply(200, { count: 3, next: null, previous: 'есть', results: [{ id: '3' }] })
+
+    const students = await studentsApi.all()
+
+    expect(students.map((s) => s.id)).toEqual(['1', '2', '3'])
+  })
+
+  it('одна страница — один запрос', async () => {
+    onHttp.onGet('/students/').reply(200, { count: 0, next: null, previous: null, results: [] })
+
+    expect(await studentsApi.all()).toEqual([])
+    expect(onHttp.history.get).toHaveLength(1)
   })
 })

@@ -50,14 +50,14 @@ export function TeacherDashboard() {
   const today = useMemo(() => startOfDay(new Date()), [])
 
   const load = useCallback(async () => {
-    const [studentsRes, homeworkRes, todayRes] = await Promise.all([
-      studentsApi.list(),
+    const [allStudents, homeworkRes, todayItems] = await Promise.all([
+      studentsApi.all(),
       homeworkApi.my(),
-      lessonsApi.list({ from: today.toISOString(), to: addDays(today, 1).toISOString() }),
+      lessonsApi.between(today.toISOString(), addDays(today, 1).toISOString()),
     ])
-    setStudents(studentsRes.data.results)
+    setStudents(allStudents)
     setHomework(homeworkRes.data.results)
-    setTodayLessons(todayRes.data.results)
+    setTodayLessons(todayItems)
   }, [today])
 
   useEffect(() => { load() }, [load])

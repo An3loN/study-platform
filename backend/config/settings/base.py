@@ -107,7 +107,7 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
-    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'DEFAULT_PAGINATION_CLASS': 'apps.common.pagination.Pagination',
     'PAGE_SIZE': 20,
     # Частота запросов к тому, что открыто без входа и где есть что подбирать:
     # пароль на /auth/login/, регистрация и гостевой вход по ссылке. Считается

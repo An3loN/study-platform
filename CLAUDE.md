@@ -352,7 +352,11 @@ docker compose -f docker-compose.dev.yml up -d --build
   собой сообщение об ошибке вместе с набранным номером. Теперь запрос
   `/auth/login/` обходит эту ветку; для остальных поведение прежнее.
 - `token_blacklist` подключён, `BLACKLIST_AFTER_ROTATION = True`: раньше при
-  ротации старый refresh оставался валидным все 7 дней.
+  ротации старый refresh оставался валидным все 7 дней. Следствие для фронта:
+  рефреш в `services/api.ts` один на всех (`refreshAccess`). Когда access
+  протухает, 401 получает вся пачка запросов страницы; каждый шёл обновлять
+  токен сам с одним и тем же refresh, второй упирался в блэклист — и
+  пользователя выкидывало на вход посреди работы.
 - `asgi.py` / `wsgi.py` по умолчанию берут `config.settings.prod` — незаданная
   переменная должна ронять запуск, а не поднимать сервер с `DEBUG=True`.
 - debug-toolbar показывается через `SHOW_TOOLBAR_CALLBACK`: проверка по
@@ -415,5 +419,10 @@ docker compose -f docker-compose.dev.yml up -d --build
 - API отдаёт snake_case, фронт работает с camelCase; конвертация — в
   интерцепторах `frontend/src/services/api.ts`, компоненты о snake_case не знают.
 - Ответы DRF пагинированы (`PAGE_SIZE = 20`), фронт ждёт `Paginated<T>`.
+  Где список нужен целиком — календарь, уроки на сегодня, все ученики, —
+  берётся `fetchAll` из `services/api.ts` (`lessonsApi.between`,
+  `studentsApi.all`): он идёт по страницам с `?page_size=100` (больше сервер
+  не отдаёт, `apps/common/pagination.py`). Первая страница там молча обрезала
+  данные — неделя плотнее двадцати уроков теряла хвост.
 - `.gitattributes` нормализует переводы строк в LF: `entrypoint.sh` с CRLF
   в контейнере не запустится.

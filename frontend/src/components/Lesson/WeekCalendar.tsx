@@ -58,8 +58,8 @@ export function WeekCalendar({
     let cancelled = false
     setLoading(true)
     lessonsApi
-      .list({ from: from.toISOString(), to: addDays(from, 7).toISOString() })
-      .then(({ data }) => { if (!cancelled) setLessons(data.results) })
+      .between(from.toISOString(), addDays(from, 7).toISOString())
+      .then((items) => { if (!cancelled) setLessons(items) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [mondayTime, reloadKey])
