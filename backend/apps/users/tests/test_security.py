@@ -28,7 +28,10 @@ def test_password_guessing_is_cut_off(api, teacher):
     response = wrong_login(api)
 
     assert response.status_code == 429
-    assert 'Слишком много попыток' in str(response.data['detail'])
+    # Целиком по-русски: штатное сообщение DRF переводилось наполовину
+    assert response.data['detail'].startswith('Слишком много попыток входа. Повторите через ')
+    assert 'Expected' not in response.data['detail']
+    assert 1 <= int(response['Retry-After']) <= 60
 
 
 def test_after_the_limit_even_the_right_password_waits(api, teacher):

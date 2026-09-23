@@ -3,10 +3,10 @@ from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, generics, permissions, status
 from rest_framework.response import Response
-from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.common.qr import qr_svg_response
+from apps.common.throttling import ScopedThrottleMixin
 from .models import User, StudentInvite
 from .permissions import IsTeacher
 from .serializers import (
@@ -20,14 +20,11 @@ from .serializers import (
 )
 
 
-class LoginView(APIView):
+class LoginView(ScopedThrottleMixin, APIView):
     """Вход по телефону и паролю. Попыток — ограниченно: иначе пароль подбирают."""
     permission_classes = [permissions.AllowAny]
-    throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'login'
-
-    def throttled(self, request, wait):
-        raise exceptions.Throttled(wait, detail='Слишком много попыток входа.')
+    throttle_message = 'Слишком много попыток входа.'
 
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
@@ -108,10 +105,9 @@ class InviteInfoView(APIView):
         return Response(InviteInfoSerializer(invite).data)
 
 
-class InviteAcceptView(APIView):
+class InviteAcceptView(ScopedThrottleMixin, APIView):
     """Публично: ученик заполняет свои данные и получает доступ."""
     permission_classes = [permissions.AllowAny]
-    throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'join'
 
     def post(self, request, token):

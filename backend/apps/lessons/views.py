@@ -10,11 +10,11 @@ from django.utils.dateparse import parse_date, parse_datetime
 from rest_framework import exceptions, generics, permissions, status
 from rest_framework.parsers import FormParser, MultiPartParser, JSONParser
 from rest_framework.response import Response
-from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import AccessToken
 
 from apps.common.qr import qr_svg_response
+from apps.common.throttling import ScopedThrottleMixin
 from apps.users.models import User
 from apps.users.permissions import IsTeacher
 from .models import Lesson, Homework, HomeworkSubmission
@@ -276,10 +276,9 @@ class LessonShareInfoView(APIView):
         return Response(LessonShareSerializer(lesson).data)
 
 
-class LessonGuestJoinView(APIView):
+class LessonGuestJoinView(ScopedThrottleMixin, APIView):
     """Публично: представился именем — получил гостевой доступ к доске."""
     permission_classes = [permissions.AllowAny]
-    throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'join'
 
     def post(self, request, share_token):

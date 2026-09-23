@@ -97,8 +97,10 @@ server {
     }
 
     # Служебные эндпоинты доски — только для Hocuspocus. Он ходит в backend
-    # напрямую по сети docker, снаружи им делать нечего.
-    location /api/whiteboard/ {
+    # напрямую по сети docker, снаружи им делать нечего. Именно ^~: без него
+    # regex-location ниже (^/(api|admin)/) перебивает префикс, и запрос
+    # уходит в Django как ни в чём не бывало.
+    location ^~ /api/whiteboard/ {
         return 404;
     }
 
