@@ -12,6 +12,13 @@ from apps.lessons.models import Homework, Lesson
 from apps.users.models import User
 
 
+@pytest.fixture(autouse=True)
+def media_root(settings, tmp_path):
+    """Загруженное тестами — во временную папку, а не в backend/media."""
+    settings.MEDIA_ROOT = tmp_path / 'media'
+    return settings.MEDIA_ROOT
+
+
 @pytest.fixture
 def api():
     return APIClient()

@@ -8,5 +8,6 @@ RUN apk add --no-cache openssl
 ENV NGINX_ENVSUBST_FILTER="APP_"
 
 COPY ssl-params.conf /etc/nginx/ssl-params.conf
+COPY security-headers.conf /etc/nginx/security-headers.conf
 COPY templates/ /etc/nginx/templates/
 COPY docker-entrypoint.d/ /docker-entrypoint.d/

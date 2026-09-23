@@ -6,6 +6,8 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
+from apps.common.media import validate_upload_extension
+
 
 class Lesson(models.Model):
     """
@@ -193,6 +195,9 @@ class Homework(models.Model):
         upload_to='homework/%Y/%m/',
         null=True,
         blank=True,
+        # Раздача безопасна для любого типа, а это второй рубеж: HTML и SVG
+        # незачем даже принимать (см. apps/common/media.py)
+        validators=[validate_upload_extension],
         verbose_name='Файл',
     )
     due_at = models.DateTimeField(
@@ -328,6 +333,9 @@ class HomeworkMessage(models.Model):
         upload_to='homework/messages/%Y/%m/',
         null=True,
         blank=True,
+        # Раздача безопасна для любого типа, а это второй рубеж: HTML и SVG
+        # незачем даже принимать (см. apps/common/media.py)
+        validators=[validate_upload_extension],
         verbose_name='Файл',
     )
     created_at = models.DateTimeField(auto_now_add=True)

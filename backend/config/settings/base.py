@@ -87,6 +87,17 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# Загруженные файлы раздаются только по подписанной ссылке через Django —
+# см. apps/common/media.py. Статика остаётся обычной.
+STORAGES = {
+    'default': {'BACKEND': 'apps.common.media.ProtectedMediaStorage'},
+    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+}
+# Внутренний location nginx, куда Django переадресует отдачу файла. Пусто —
+# файл отдаёт сам Django: так в разработке и в тестах, где nginx нет или
+# он просто проксирует.
+MEDIA_ACCEL_REDIRECT_PREFIX = None
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 REST_FRAMEWORK = {
