@@ -9,7 +9,7 @@
 |---|---|---|
 | `nginx` | единая точка входа, проксирует всё остальное | 8000 (dev), 80 (prod) |
 | `frontend` | React 18 + Vite; в dev — dev-сервер, в prod — статика в своём nginx | 5173 / 80 |
-| `backend` | Django 5.1 + DRF, ASGI под daphne | 8000 |
+| `backend` | Django 5.2 + DRF, WSGI под gunicorn | 8000 |
 | `hocuspocus` | Node-сервер совместного редактирования Yjs | 1234 |
 | `postgres` | БД | 5432 |
 | `redis` | Celery (db 1), Hocuspocus (db 2), кеш Django (db 3) | 6379 |
@@ -376,7 +376,16 @@ docker compose -f docker-compose.dev.yml up -d --build
   протухает, 401 получает вся пачка запросов страницы; каждый шёл обновлять
   токен сам с одним и тем же refresh, второй упирался в блэклист — и
   пользователя выкидывало на вход посреди работы.
-- `asgi.py` / `wsgi.py` по умолчанию берут `config.settings.prod` — незаданная
+- **Бэкенд под gunicorn, а не daphne.** WebSocket у Django нет с тех пор, как
+  чат убран, а daphne держал один процесс и гонял синхронные вьюхи через пул
+  потоков. Теперь WSGI, два процесса по четыре потока (`entrypoint.sh`,
+  `GUNICORN_WORKERS`/`GUNICORN_THREADS`) — около двухсот мегабайт.
+  `asgi.py` удалён. Соединения с Postgres живут 60 секунд (`CONN_MAX_AGE`) с
+  проверкой перед использованием, а не открываются на каждый запрос.
+  `LOGGING` пишет 500-е с трейсбеком в stdout контейнера: по умолчанию при
+  `DEBUG=False` Django отправлял их письмом на пустой `ADMINS`, то есть в
+  никуда. 4xx не пишутся — их видно в логе nginx.
+- `wsgi.py` по умолчанию берёт `config.settings.prod` — незаданная
   переменная должна ронять запуск, а не поднимать сервер с `DEBUG=True`.
 - debug-toolbar показывается через `SHOW_TOOLBAR_CALLBACK`: проверка по
   `INTERNAL_IPS` за nginx не срабатывала никогда.

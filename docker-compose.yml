@@ -58,7 +58,7 @@ services:
     image: ${REGISTRY_IMAGE:-study-platform}/frontend:${IMAGE_TAG:-latest}
     restart: unless-stopped
 
-  # ── Django ASGI (Daphne) ────────────────────────────────────────────────────
+  # ── Django (gunicorn) ───────────────────────────────────────────────────────
   backend:
     build: ./backend
     image: ${REGISTRY_IMAGE:-study-platform}/backend:${IMAGE_TAG:-latest}
@@ -76,7 +76,7 @@ services:
       - static_files:/app/staticfiles
       - media_files:/app/media
     healthcheck:
-      # Без обращения к базе: проверяем, что ASGI отвечает, а не что всё
+      # Без обращения к базе: проверяем, что сервер отвечает, а не что всё
       # приложение здорово — иначе healthcheck начнёт врать при первой же
       # нагрузке на postgres
       test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.create_connection(('127.0.0.1',8000),2); s.close()\""]

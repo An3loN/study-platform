@@ -17,3 +17,6 @@ EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'
 
 # Redis тестам не нужен: лимиты частоты считаются в памяти процесса
 CACHES = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}}
+
+# 4xx в тестах — норма, а не повод засорять вывод
+LOGGING = {'version': 1, 'disable_existing_loggers': False}

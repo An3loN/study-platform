@@ -64,6 +64,11 @@ DATABASES = {
         'PASSWORD': config('POSTGRES_PASSWORD'),
         'HOST': config('POSTGRES_HOST', default='postgres'),
         'PORT': config('POSTGRES_PORT', default='5432'),
+        # Соединение живёт между запросами, а не открывается на каждый заново
+        # (это несколько миллисекунд и процесс Postgres на каждый запрос).
+        # Перед использованием проверяется: Postgres мог его закрыть.
+        'CONN_MAX_AGE': config('CONN_MAX_AGE', default=60, cast=int),
+        'CONN_HEALTH_CHECKS': True,
     }
 }
 
@@ -149,3 +154,26 @@ HOCUSPOCUS_SECRET = config('HOCUSPOCUS_SECRET')
 CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default='redis://redis:6379/1')
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
+
+# Ошибки — в stdout контейнера, откуда их читает `docker compose logs`.
+# По умолчанию Django при DEBUG=False шлёт трейсбеки 500-х только письмом
+# на ADMINS, которых нет, — то есть в никуда: упавший запрос не оставлял
+# следа нигде, кроме строки 500 в логе nginx.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'plain': {'format': '{asctime} {levelname} {name}: {message}', 'style': '{'},
+    },
+    'handlers': {
+        'console': {'class': 'logging.StreamHandler', 'formatter': 'plain'},
+    },
+    'root': {'handlers': ['console'], 'level': 'WARNING'},
+    'loggers': {
+        # Только 500-е с трейсбеком: 4xx — обычные ответы (протухший токен,
+        # неверная форма), их и так видно в логе nginx
+        'django.request': {'handlers': ['console'], 'level': 'ERROR', 'propagate': False},
+        'django.security': {'handlers': ['console'], 'level': 'WARNING', 'propagate': False},
+        'apps': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+    },
+}
