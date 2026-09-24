@@ -17,6 +17,9 @@ CSRF_TRUSTED_ORIGINS = config(
     cast=lambda v: [s.strip() for s in v.split(',') if s.strip()],
 )
 
+# Файлы отдаёт nginx из внутреннего location — см. nginx/templates
+MEDIA_ACCEL_REDIRECT_PREFIX = '/protected-media/'
+
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # На https переводит сам nginx, здесь это второй рубеж. Но переменной он

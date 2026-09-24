@@ -43,7 +43,7 @@ export function LessonPage() {
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
-    if (isTeacher) studentsApi.list().then(({ data }) => setStudents(data.results))
+    if (isTeacher) studentsApi.all().then(setStudents)
   }, [isTeacher])
 
   const handleEdit = async (data: Parameters<typeof lessonsApi.create>[0]) => {

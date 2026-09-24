@@ -6,6 +6,8 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
+from apps.common.media import validate_upload_extension
+
 
 class Lesson(models.Model):
     """
@@ -83,6 +85,9 @@ class Lesson(models.Model):
         verbose_name = 'Урок'
         verbose_name_plural = 'Уроки'
         ordering = ['-scheduled_at', '-created_at']
+        # Уроки почти всегда выбираются по преподавателю и времени: календарь
+        # недели, «предстоящие», поиск следующего урока для срока задания
+        indexes = [models.Index(fields=['teacher', 'scheduled_at'], name='lesson_teacher_time')]
 
     def __str__(self):
         when = self.scheduled_at.strftime('%d.%m.%Y %H:%M') if self.scheduled_at else 'без даты'
@@ -150,6 +155,19 @@ class Lesson(models.Model):
         return f'/j/{self.share_token}'
 
 
+class HomeworkQuerySet(models.QuerySet):
+    def with_details(self):
+        """
+        Всё, что читает HomeworkSerializer, одним набором запросов на страницу,
+        а не на каждое задание: урок и его ученики, преподаватель, адресаты,
+        сдачи и сообщения. Без этого страница из двадцати заданий стоила
+        шестьдесят с лишним запросов.
+        """
+        return self.select_related('lesson', 'teacher').prefetch_related(
+            'submissions__student', 'messages', 'lesson__students', 'students',
+        )
+
+
 class Homework(models.Model):
     """
     Домашнее задание. Обычно крепится к уроку, на котором задано, но урок
@@ -193,6 +211,9 @@ class Homework(models.Model):
         upload_to='homework/%Y/%m/',
         null=True,
         blank=True,
+        # Раздача безопасна для любого типа, а это второй рубеж: HTML и SVG
+        # незачем даже принимать (см. apps/common/media.py)
+        validators=[validate_upload_extension],
         verbose_name='Файл',
     )
     due_at = models.DateTimeField(
@@ -202,6 +223,8 @@ class Homework(models.Model):
         help_text='Пусто — до следующего урока.',
     )
     created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = HomeworkQuerySet.as_manager()
 
     class Meta:
         verbose_name = 'Домашнее задание'
@@ -328,6 +351,9 @@ class HomeworkMessage(models.Model):
         upload_to='homework/messages/%Y/%m/',
         null=True,
         blank=True,
+        # Раздача безопасна для любого типа, а это второй рубеж: HTML и SVG
+        # незачем даже принимать (см. apps/common/media.py)
+        validators=[validate_upload_extension],
         verbose_name='Файл',
     )
     created_at = models.DateTimeField(auto_now_add=True)

@@ -1,8 +1,8 @@
 from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
-from django.conf.urls.static import static
 
+from apps.common.media import media_file
 from apps.users.urls import auth_urlpatterns, student_urlpatterns, invite_urlpatterns
 from apps.lessons.urls import urlpatterns as lesson_urls, homework_urlpatterns
 
@@ -14,9 +14,10 @@ urlpatterns = [
     path('api/lessons/', include(lesson_urls)),
     path('api/homework/', include(homework_urlpatterns)),
     path('api/whiteboard/', include('apps.whiteboard.urls')),
+    # Загруженные файлы: доступ по подписи в самой ссылке, см. apps/common/media.py
+    path('api/files/<str:token>/', media_file, name='media-file'),
 ]
 
 if settings.DEBUG:
     import debug_toolbar
     urlpatterns += [path('__debug__/', include(debug_toolbar.urls))]
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

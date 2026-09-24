@@ -181,6 +181,27 @@ describe('WeekCalendar', () => {
     await waitFor(() => expect(mock.history.get).toHaveLength(2))
   })
 
+  it('уроки сверх одной страницы не теряются', async () => {
+    // Выдача пагинирована: раньше календарь брал только первую страницу, и
+    // неделя плотнее двадцати уроков молча обрезалась
+    const first = Array.from({ length: 100 }, (_, i) => lesson(`a${i}`, new Date(2026, 2, 10, 8)))
+    const second = [lesson('last', new Date(2026, 2, 10, 20))]
+    mock.onGet('/lessons/').reply((config) => (
+      config.params.page === 1
+        ? [200, { ...paginated(first), count: 101, next: '/api/lessons/?page=2' }]
+        : [200, { ...paginated(second), count: 101 }]
+    ))
+
+    const { container } = render(<WeekCalendar renderLesson={renderLesson} />)
+
+    expect(await screen.findByText('урок last')).toBeInTheDocument()
+    expect(mock.history.get).toHaveLength(2)
+    expect(mock.history.get[0].params.page_size).toBe(100)
+    await waitFor(() => {
+      expect(container.querySelectorAll('.calendar__pill')[1].textContent).toBe('101')
+    })
+  })
+
   it('прыжок по дате уводит на нужный день', async () => {
     mock.onGet('/lessons/').reply(200, paginated([lesson('b', new Date(2026, 2, 12, 12))]))
 

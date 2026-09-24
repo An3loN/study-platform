@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
-import { pruneUnusedFiles } from './cleanup.js'
+import { pruneUnusedFiles, pruneUnusedFilesIfIdle, type RoomDocument } from './cleanup.js'
 
 /**
  * Чистка тел картинок.
@@ -162,5 +162,34 @@ describe('как удаляет', () => {
     pruneUnusedFiles(doc)
 
     expect(transactions).toBe(0)
+  })
+})
+
+describe('когда можно чистить', () => {
+  /** Документ комнаты с заданным числом подключённых — как у Hocuspocus */
+  function roomWith(connections: number, elements: Record<string, Element>, files: Record<string, string>) {
+    return Object.assign(docWith(elements, files), { getConnectionsCount: () => connections }) as RoomDocument
+  }
+
+  it('посреди урока не трогает ничего', () => {
+    // onStoreDocument срабатывает и через пару секунд после правки, пока все
+    // на месте. Удалили картинку — её ещё может вернуть Ctrl+Z
+    const doc = roomWith(2, { e1: { fileId: 'f1', isDeleted: true } }, { f1: 'данные' })
+
+    expect(pruneUnusedFilesIfIdle(doc)).toBe(0)
+    expect(fileIds(doc)).toEqual(['f1'])
+  })
+
+  it('последний ещё не ушёл — тоже нет', () => {
+    const doc = roomWith(1, {}, { f1: 'ничьи' })
+
+    expect(pruneUnusedFilesIfIdle(doc)).toBe(0)
+  })
+
+  it('в пустой комнате чистит', () => {
+    const doc = roomWith(0, { e1: { fileId: 'f1', isDeleted: true } }, { f1: 'данные' })
+
+    expect(pruneUnusedFilesIfIdle(doc)).toBe(1)
+    expect(fileIds(doc)).toEqual([])
   })
 })

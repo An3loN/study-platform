@@ -203,3 +203,9 @@ def test_patch_without_title_keeps_the_old_one(as_teacher, make_lesson, student)
     lesson.refresh_from_db()
     assert lesson.title == 'Математика · дроби'
     assert lesson.duration == 90
+
+
+@pytest.mark.parametrize('url', ['/api/lessons/', '/api/homework/'])
+def test_malformed_student_filter_is_400(as_teacher, url):
+    """Не-UUID в ?student= раньше доходил до ORM и оборачивался 500."""
+    assert as_teacher.get(url, {'student': 'abc'}).status_code == 400

@@ -1,7 +1,10 @@
+import uuid
 from bisect import bisect_right
 from datetime import datetime, time, timedelta
 
-from django.db.models import DateTimeField, DurationField, ExpressionWrapper, F, Q, Value
+from django.db.models import (
+    Count, DateTimeField, DurationField, Exists, ExpressionWrapper, F, OuterRef, Prefetch, Q, Value,
+)
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -13,6 +16,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import AccessToken
 
 from apps.common.qr import qr_svg_response
+from apps.common.throttling import ScopedThrottleMixin
 from apps.users.models import User
 from apps.users.permissions import IsTeacher
 from .models import Lesson, Homework, HomeworkSubmission
@@ -74,6 +78,24 @@ def parse_bool(value, default=False):
     return str(value).strip().lower() in ('true', '1', 'yes', 'on')
 
 
+def uuid_param(value, field):
+    """
+    Идентификатор из запроса. Не-UUID — это 400: ORM на нём падает
+    ValidationError из Django, а её DRF не узнаёт и отвечает 500.
+    """
+    try:
+        return uuid.UUID(str(value))
+    except ValueError:
+        raise exceptions.ValidationError({field: 'Ожидается идентификатор (UUID).'})
+
+
+def lesson_detail_queryset():
+    """Урок со всем, что читает LessonDetailSerializer, включая задания целиком."""
+    return Lesson.objects.select_related('teacher', 'cancelled_by').prefetch_related(
+        'students', Prefetch('homework', queryset=Homework.objects.with_details()),
+    )
+
+
 def lessons_for(user):
     if user.is_teacher:
         return Lesson.objects.filter(teacher=user)
@@ -109,16 +131,26 @@ class LessonListCreateView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        # Без distinct: каждый фильтр по участникам — отдельный join по
+        # уникальной паре «урок + ученик», дублей он не даёт. А DISTINCT по
+        # всем колонкам, включая заметки и комментарий, Postgres пришлось бы
+        # сравнивать целиком. Задания в списке нужны только числом — считаем
+        # их в том же запросе, а не грузим целиком.
+        #
+        # Порядок — явно: с аннотацией Count запрос получает GROUP BY, а в
+        # таких Django Meta.ordering не применяет, и лента уроков на странице
+        # ученика шла бы в случайном порядке.
         queryset = (
             lessons_for(self.request.user)
-            .prefetch_related('students', 'homework')
-            .select_related('teacher')
-            .distinct()
+            .select_related('teacher', 'cancelled_by')
+            .prefetch_related('students')
+            .annotate(homework_total=Count('homework', distinct=True))
+            .order_by(*Lesson._meta.ordering)
         )
         params = self.request.query_params
 
         if params.get('student'):
-            queryset = queryset.filter(students__id=params['student'])
+            queryset = queryset.filter(students__id=uuid_param(params['student'], 'student'))
 
         # Промежуток: урок без даты в него не попадает — его ещё не назначили
         start = parse_moment(params.get('from'))
@@ -176,7 +208,7 @@ class LessonDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return Lesson.objects.select_related('teacher').prefetch_related('students', 'homework')
+        return lesson_detail_queryset()
 
     def get_serializer_class(self):
         if self.request.method in ('PUT', 'PATCH'):
@@ -199,7 +231,9 @@ class LessonDetailView(generics.RetrieveUpdateDestroyAPIView):
         serializer.save()
         if 'students' in serializer.validated_data:
             lesson.students.set(serializer.validated_data['students'])
-        lesson.refresh_from_db()
+        # Заново из базы и со всеми подгрузками: refresh_from_db сбросил бы их,
+        # и сериализатор пошёл бы за каждым заданием отдельно
+        lesson = lesson_detail_queryset().get(pk=lesson.pk)
         return Response(LessonDetailSerializer(lesson, context=self.get_serializer_context()).data)
 
 
@@ -231,6 +265,7 @@ class LessonCancelView(APIView):
         lesson.cancel_reason = reason
         lesson.save(update_fields=['cancelled_at', 'cancelled_by', 'cancel_reason'])
 
+        lesson = lesson_detail_queryset().get(pk=lesson.pk)
         return Response(LessonDetailSerializer(lesson, context={'request': request}).data)
 
 
@@ -263,9 +298,10 @@ class LessonShareInfoView(APIView):
         return Response(LessonShareSerializer(lesson).data)
 
 
-class LessonGuestJoinView(APIView):
+class LessonGuestJoinView(ScopedThrottleMixin, APIView):
     """Публично: представился именем — получил гостевой доступ к доске."""
     permission_classes = [permissions.AllowAny]
+    throttle_scope = 'join'
 
     def post(self, request, share_token):
         lesson = get_live_lesson(share_token)
@@ -308,7 +344,7 @@ class HomeworkListCreateView(generics.ListCreateAPIView):
         return lesson
 
     def get_queryset(self):
-        return self.get_lesson().homework.prefetch_related('submissions__student', 'messages', 'lesson__students', 'students')
+        return Homework.objects.filter(lesson=self.get_lesson()).with_details()
 
     def perform_create(self, serializer):
         lesson = self.get_lesson()
@@ -326,7 +362,7 @@ class HomeworkDetailView(generics.RetrieveUpdateDestroyAPIView):
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
-        return Homework.objects.select_related('lesson').prefetch_related('submissions__student', 'messages', 'lesson__students', 'students')
+        return Homework.objects.with_details()
 
     def get_object(self):
         homework = get_object_or_404(self.get_queryset(), pk=self.kwargs['pk'])
@@ -341,7 +377,7 @@ class HomeworkDetailView(generics.RetrieveUpdateDestroyAPIView):
 def get_homework_for(user, pk, teacher_only=False):
     """Задание, если пользователь имеет к нему отношение."""
     homework = get_object_or_404(
-        Homework.objects.select_related('lesson').prefetch_related('submissions__student', 'messages', 'lesson__students', 'students'),
+        Homework.objects.with_details(),
         pk=pk,
     )
     if teacher_only:
@@ -361,6 +397,10 @@ class HomeworkDoneView(APIView):
 
     def post(self, request, pk):
         homework = get_homework_for(request.user, pk)
+        # Доступ к заданию есть и у преподавателя, но отмечаться ему не за
+        # что: без этой проверки появлялась «сдача» от его имени
+        if not homework.student_set.filter(pk=request.user.pk).exists():
+            raise exceptions.PermissionDenied('Отмечать выполнение может только тот, кому задано.')
 
         done = parse_bool(request.data.get('done'), default=True)
         submission, _ = HomeworkSubmission.objects.get_or_create(
@@ -376,7 +416,7 @@ class HomeworkDoneView(APIView):
             submission.accepted_at = None
         submission.save()
 
-        homework.refresh_from_db()
+        homework = Homework.objects.with_details().get(pk=homework.pk)
         return Response(HomeworkSerializer(homework, context={'request': request}).data)
 
 
@@ -397,6 +437,7 @@ class HomeworkReviewView(APIView):
         student_id = request.data.get('student')
         if not student_id:
             return Response({'detail': 'Не указан ученик.'}, status=status.HTTP_400_BAD_REQUEST)
+        student_id = uuid_param(student_id, 'student')
         if not homework.student_set.filter(pk=student_id).exists():
             return Response({'detail': 'Этому ученику задание не задавали.'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -429,7 +470,7 @@ class HomeworkReviewView(APIView):
             submission.done_at = None
         submission.save()
 
-        homework.refresh_from_db()
+        homework = Homework.objects.with_details().get(pk=homework.pk)
         return Response(HomeworkSerializer(homework, context={'request': request}).data)
 
 
@@ -457,6 +498,7 @@ class HomeworkMessageListCreateView(generics.ListCreateAPIView):
         student_id = self.request.query_params.get('student') or self.request.data.get('student')
         if not student_id:
             raise exceptions.ValidationError({'detail': 'Не указан ученик.'})
+        student_id = uuid_param(student_id, 'student')
         if not homework.student_set.filter(pk=student_id).exists():
             raise exceptions.ValidationError({'detail': 'Этому ученику задание не задавали.'})
         return student_id
@@ -479,10 +521,44 @@ class HomeworkMessageListCreateView(generics.ListCreateAPIView):
         serializer.save(homework=homework, author=self.request.user, student_id=student_id)
 
 
+def open_homework_for(user):
+    """
+    Условие «задание ещё не закрыто» — для лент, которым нужны все такие
+    задания, а не первая страница: «требуют внимания» у преподавателя и
+    «к сдаче» у ученика. Раньше они фильтровали первые двадцать заданий на
+    фронте, и старая непроверенная работа из ленты молча пропадала.
+
+    Закрыто — значит принято. Ученику важна только своя работа, а
+    преподавателю задание закрыто, когда приняли у всех адресатов: пока
+    хоть один не сдан или не проверен, оно требует внимания.
+    """
+    if not user.is_teacher:
+        return ~Exists(HomeworkSubmission.objects.filter(
+            homework=OuterRef('pk'), student=user, accepted_at__isnull=False,
+        ))
+
+    # Внутри подзапроса по адресатам OuterRef('user_id') — сам адресат,
+    # OuterRef(OuterRef('pk')) — задание, для которого его ищем
+    unaccepted = ~Exists(HomeworkSubmission.objects.filter(
+        homework=OuterRef(OuterRef('pk')), student=OuterRef('user_id'), accepted_at__isnull=False,
+    ))
+    # Адресаты — ученики урока, а у задания без урока — перечисленные явно,
+    # как в Homework.student_set
+    lesson_waits = Exists(
+        Lesson.students.through.objects.filter(lesson_id=OuterRef('lesson_id')).filter(unaccepted),
+    )
+    own_waits = Exists(
+        Homework.students.through.objects.filter(homework_id=OuterRef('pk')).filter(unaccepted),
+    )
+    return (Q(lesson__isnull=False) & lesson_waits) | (Q(lesson__isnull=True) & own_waits)
+
+
 class MyHomeworkListView(generics.ListCreateAPIView):
     """
     GET  — домашние задания пользователя, и привязанные к уроку, и нет.
            ?student=<uuid> — только задания этого ученика.
+           ?open=1 — только незакрытые: у преподавателя — где хоть кому-то
+           работу ещё не приняли, у ученика — где не приняли его.
     POST — задание без урока: преподаватель сам перечисляет, кому задаёт.
            Задание к занятию создаётся своим маршрутом, там адресаты уже
            известны из урока.
@@ -499,15 +575,18 @@ class MyHomeworkListView(generics.ListCreateAPIView):
         queryset = (
             Homework.objects
             .filter(mine)
-            .select_related('lesson', 'teacher')
-            .prefetch_related('submissions__student', 'messages', 'lesson__students', 'students')
+            .with_details()
         )
 
         # ?student=<uuid> — задания одного ученика, для его страницы.
         # Адресат берётся из урока или из самого задания, поэтому условий два.
         student = self.request.query_params.get('student')
         if student:
+            student = uuid_param(student, 'student')
             queryset = queryset.filter(Q(lesson__students__id=student) | Q(students__id=student))
+
+        if parse_bool(self.request.query_params.get('open')):
+            queryset = queryset.filter(open_homework_for(user))
 
         return queryset.distinct()
 

@@ -43,6 +43,38 @@ http.interceptors.request.use((config) => {
   return config
 })
 
+/**
+ * Обновление токена — одно на всех.
+ *
+ * Когда access протухает, страница обычно шлёт несколько запросов сразу, и
+ * 401 получают все. Раньше каждый шёл обновлять токен сам, с одним и тем же
+ * refresh. Сервер ротирует его и вносит старый в блэклист, поэтому первый
+ * рефреш удавался, а второй получал 401 — и выкидывал пользователя на вход
+ * посреди работы. Теперь пока рефреш идёт, остальные ждут его результата.
+ */
+let refreshing: Promise<string> | null = null
+
+function refreshAccess(refresh: string): Promise<string> {
+  refreshing ??= axios
+    .post('/api/auth/refresh/', { refresh })
+    .then(async ({ data }) => {
+      localStorage.setItem('access_token', data.access)
+      if (data.refresh) localStorage.setItem('refresh_token', data.refresh)
+
+      // Держим store в актуальном состоянии: доска берёт токен именно оттуда,
+      // иначе после рефреша она переподключится с протухшим токеном.
+      // Динамический импорт — чтобы не было циклической зависимости store ↔ api.
+      const { useAuthStore } = await import('@/store/authStore')
+      useAuthStore.setState({
+        accessToken: data.access,
+        ...(data.refresh ? { refreshToken: data.refresh } : {}),
+      })
+      return data.access as string
+    })
+    .finally(() => { refreshing = null })
+  return refreshing
+}
+
 // Авто-рефреш при 401
 http.interceptors.response.use(
   (res) => res,
@@ -54,6 +86,15 @@ http.interceptors.response.use(
     const isLogin = typeof original?.url === 'string' && original.url.includes('/auth/login/')
     if (error.response?.status === 401 && !original._retry && !isLogin) {
       original._retry = true
+
+      // Запрос ушёл со старым токеном, а его уже обновили, пока ждали ответа:
+      // рефреш не нужен, достаточно повторить со свежим
+      const current = localStorage.getItem('access_token')
+      if (current && original.headers?.Authorization !== `Bearer ${current}`) {
+        original.headers.Authorization = `Bearer ${current}`
+        return http(original)
+      }
+
       const refresh = localStorage.getItem('refresh_token')
       if (!refresh) {
         localStorage.clear()
@@ -61,20 +102,8 @@ http.interceptors.response.use(
         return Promise.reject(error)
       }
       try {
-        const { data } = await axios.post('/api/auth/refresh/', { refresh })
-        localStorage.setItem('access_token', data.access)
-        if (data.refresh) localStorage.setItem('refresh_token', data.refresh)
-
-        // Держим store в актуальном состоянии: доска и чат берут токен именно оттуда,
-        // иначе после рефреша они переподключатся с протухшим токеном.
-        // Динамический импорт — чтобы не было циклической зависимости store ↔ api.
-        const { useAuthStore } = await import('@/store/authStore')
-        useAuthStore.setState({
-          accessToken: data.access,
-          ...(data.refresh ? { refreshToken: data.refresh } : {}),
-        })
-
-        original.headers.Authorization = `Bearer ${data.access}`
+        const access = await refreshAccess(refresh)
+        original.headers.Authorization = `Bearer ${access}`
         return http(original)
       } catch {
         localStorage.clear()
@@ -84,6 +113,25 @@ http.interceptors.response.use(
     return Promise.reject(error)
   },
 )
+
+/**
+ * Все страницы списка разом.
+ *
+ * Выдача DRF пагинирована по 20, и там, где нужен весь набор, первая
+ * страница молча его обрезала: календарь недели терял уроки сверх двадцати,
+ * а список учеников — учеников. Страницы берём по 100 (больше сервер не
+ * отдаёт) и идём, пока есть следующая.
+ */
+async function fetchAll<T>(url: string, params: Record<string, unknown> = {}): Promise<T[]> {
+  const items: T[] = []
+  for (let page = 1; ; page += 1) {
+    const { data } = await http.get<Paginated<T>>(url, {
+      params: { ...params, page, page_size: 100 },
+    })
+    items.push(...data.results)
+    if (!data.next) return items
+  }
+}
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -97,7 +145,8 @@ export const authApi = {
 // ── Ученики ──────────────────────────────────────────────────────────────────
 
 export const studentsApi = {
-  list: () => http.get<Paginated<Student>>('/students/'),
+  /** Все ученики, а не первая страница: список нужен целиком */
+  all: () => fetchAll<Student>('/students/'),
   get: (id: string) => http.get<Student>(`/students/${id}/`),
   create: (data: StudentInput) => http.post<Student>('/students/', data),
   update: (id: string, data: StudentInput) => http.patch<Student>(`/students/${id}/`, data),
@@ -136,23 +185,13 @@ function camelize<T>(response: { data: T }): { data: T } {
 // ── Уроки ────────────────────────────────────────────────────────────────────
 
 export const lessonsApi = {
-  list: (params?: {
-    upcoming?: boolean
-    past?: boolean
-    student?: string
-    /** Границы промежутка в ISO с местным смещением — для календаря */
-    from?: string
-    to?: string
-  }) =>
-    http.get<Paginated<Lesson>>('/lessons/', {
-      params: {
-        ...(params?.upcoming ? { upcoming: 1 } : {}),
-        ...(params?.past ? { past: 1 } : {}),
-        ...(params?.student ? { student: params.student } : {}),
-        ...(params?.from ? { from: params.from } : {}),
-        ...(params?.to ? { to: params.to } : {}),
-      },
-    }),
+  /**
+   * Все уроки промежутка — для календаря и «сегодня». Промежуток ограничен,
+   * а обрезать его первой страницей нельзя: пропавший урок никто не заметит.
+   */
+  between: (from: string, to: string) => fetchAll<Lesson>('/lessons/', { from, to }),
+  /** Все уроки одного ученика — лента на его странице вместе с числом */
+  allOf: (student: string) => fetchAll<Lesson>('/lessons/', { student }),
   get: (id: string) => http.get<LessonDetail>(`/lessons/${id}/`),
   create: (data: LessonInput) => http.post<LessonDetail>('/lessons/', data),
   update: (id: string, data: LessonInput) => http.patch<LessonDetail>(`/lessons/${id}/`, data),
@@ -171,10 +210,15 @@ export const lessonsApi = {
 // ── Домашние задания ─────────────────────────────────────────────────────────
 
 export const homeworkApi = {
-  my: (params?: { student?: string }) =>
-    http.get<Paginated<Homework>>('/homework/', {
-      params: params?.student ? { student: params.student } : {},
-    }),
+  /**
+   * Все незакрытые задания: у преподавателя — где хоть кому-то работу ещё не
+   * приняли, у ученика — где не приняли его. Для лент «требуют внимания» и
+   * «к сдаче»: первая страница выдачи молча теряла старое непроверенное.
+   */
+  open: () => fetchAll<Homework>('/homework/', { open: 1 }),
+
+  /** Все задания одного ученика — для его страницы, где они видны списком */
+  allOf: (student: string) => fetchAll<Homework>('/homework/', { student }),
 
   /**
    * Задание без урока: адресатов перечисляем сами. У задания с уроком они

@@ -2,14 +2,12 @@ from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import AuthenticationFailed
-from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import User, StudentInvite, normalize_phone
+from .tokens import issue_tokens
 
 
-def issue_tokens(user):
-    refresh = RefreshToken.for_user(user)
-    return {'access': str(refresh.access_token), 'refresh': str(refresh)}
+
 
 
 class UserPublicSerializer(serializers.ModelSerializer):
@@ -40,7 +38,13 @@ class LoginSerializer(serializers.Serializer):
     def validate(self, attrs):
         phone = normalize_phone(attrs['phone'])
         user = User.objects.filter(phone=phone).first()
-        if not user or not user.is_active or not user.check_password(attrs['password']):
+        if user is None:
+            # Хешируем впустую, как ModelBackend: без этого на незнакомый
+            # номер ответ приходил заметно быстрее, и по времени было видно,
+            # зарегистрирован ли телефон
+            User().set_password(attrs['password'])
+            raise AuthenticationFailed('Неверный телефон или пароль.')
+        if not user.check_password(attrs['password']) or not user.is_active:
             raise AuthenticationFailed('Неверный телефон или пароль.')
         return issue_tokens(user)
 
@@ -96,8 +100,10 @@ class StudentSerializer(serializers.ModelSerializer):
         return obj.has_usable_password() and bool(obj.phone)
 
     def _invite(self, obj):
-        # Приглашение живёт, пока ученик не завершил регистрацию
-        return obj.invites.filter(accepted_at__isnull=True).first()
+        # Приглашение живёт, пока ученик не завершил регистрацию. Перебор, а не
+        # filter(): приглашения подгружены заранее (prefetch_related во вьюхе),
+        # а filter шёл бы в базу — по три раза на каждого ученика
+        return next((invite for invite in obj.invites.all() if invite.accepted_at is None), None)
 
     def get_invite_token(self, obj):
         invite = self._invite(obj)

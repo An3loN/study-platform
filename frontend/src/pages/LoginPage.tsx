@@ -33,8 +33,15 @@ export function LoginPage() {
     try {
       await login(phone, password)
       navigate('/')
-    } catch {
-      setError('Неверный телефон или пароль.')
+    } catch (err) {
+      const response = (err as { response?: { status?: number; data?: { detail?: string } } }).response
+      // После десятка неудачных попыток сервер отвечает 429 и просит
+      // подождать — это не «неверный пароль», и верный сейчас тоже не пустят
+      setError(
+        response?.status === 429
+          ? response.data?.detail || 'Слишком много попыток входа. Подождите минуту.'
+          : 'Неверный телефон или пароль.',
+      )
     } finally {
       setLoading(false)
     }

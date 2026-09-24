@@ -60,23 +60,48 @@ server {
         application/json application/javascript application/xml
         image/svg+xml;
 
-    add_header X-Frame-Options    "SAMEORIGIN"  always;
-    add_header X-Content-Type-Options "nosniff" always;
-    # Полгода: меньше не имеет смысла, больше — рискованно, пока домен молодой
-    add_header Strict-Transport-Security "max-age=15768000" always;
+    # Заголовки безопасности вынесены в файл и подключаются заново в каждом
+    # location со своим add_header: nginx наследует add_header с уровня
+    # server, только если в location нет ни одного своего. Из-за этого
+    # /static/ и /media/ раньше уходили без nosniff и HSTS.
+    include /etc/nginx/security-headers.conf;
 
     # ── Статика Django ────────────────────────────────────────────────────────
     location /static/ {
         alias /app/staticfiles/;
         expires 1y;
         add_header Cache-Control "public, immutable";
+        include /etc/nginx/security-headers.conf;
         access_log off;
     }
 
-    location /media/ {
+    # ── Загруженные файлы ─────────────────────────────────────────────────────
+    # Напрямую не отдаются: ссылку подписывает Django и отвечает
+    # X-Accel-Redirect сюда (см. backend/apps/common/media.py). Снаружи этот
+    # location недоступен — internal.
+    location /protected-media/ {
+        internal;
         alias /app/media/;
-        expires 7d;
-        add_header Cache-Control "public";
+        # Тип и Content-Disposition выставил Django по белому списку, nginx
+        # берёт их из его ответа. Своего угадывания по расширению тут быть не
+        # должно: для .html оно дало бы text/html.
+        types { }
+        default_type application/octet-stream;
+        include /etc/nginx/security-headers.conf;
+    }
+
+    # Старые адреса вида /media/... больше ничего не отдают — иначе они
+    # проваливались бы в SPA и возвращали index.html со статусом 200
+    location /media/ {
+        return 404;
+    }
+
+    # Служебные эндпоинты доски — только для Hocuspocus. Он ходит в backend
+    # напрямую по сети docker, снаружи им делать нечего. Именно ^~: без него
+    # regex-location ниже (^/(api|admin)/) перебивает префикс, и запрос
+    # уходит в Django как ни в чём не бывало.
+    location ^~ /api/whiteboard/ {
+        return 404;
     }
 
     # ── Django REST API + Admin ───────────────────────────────────────────────
@@ -109,5 +134,14 @@ server {
         proxy_pass       http://frontend;
         proxy_set_header Host      $http_host;
         proxy_set_header X-Real-IP $remote_addr;
+
+        # Токены лежат в localStorage, так что любой внедрённый скрипт —
+        # это чужой вход в аккаунт. CSP разрешает только свои скрипты, без
+        # inline и eval. Стили inline нужны React и Excalidraw, шрифты
+        # интерфейса — с Google Fonts, доска — WebSocket на свой же домен.
+        # Только для SPA: PDF-просмотрщик Chrome под такой политикой не
+        # открывается, а у админки Django свои inline-скрипты.
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' wss://${APP_DOMAIN}; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'" always;
+        include /etc/nginx/security-headers.conf;
     }
 }

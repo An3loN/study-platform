@@ -176,3 +176,19 @@ def test_stranger_cannot_open_someone_elses_lesson(api, make_lesson, student, st
 def test_anonymous_gets_401(api, make_lesson, student):
     make_lesson([student])
     assert api.get('/api/lessons/').status_code == 401
+
+
+def test_plain_list_is_newest_first(as_teacher, make_lesson, make_homework, student, now):
+    """
+    Число заданий считается аннотацией, а с GROUP BY Django не применяет
+    Meta.ordering — лента на странице ученика шла в случайном порядке.
+    """
+    lessons = [make_lesson([student], at=now - timedelta(days=days)) for days in (5, 1, 9, 3)]
+    for lesson in lessons:
+        make_homework(lesson=lesson)
+
+    response = as_teacher.get('/api/lessons/', {'student': str(student.id)})
+
+    returned = [row['scheduled_at'] for row in response.data['results']]
+    assert returned == sorted(returned, reverse=True)
+    assert all(row['homework_count'] == 1 for row in response.data['results'])

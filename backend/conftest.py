@@ -5,11 +5,28 @@
 from datetime import timedelta
 
 import pytest
+from django.core.cache import cache
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.lessons.models import Homework, Lesson
 from apps.users.models import User
+
+
+@pytest.fixture(autouse=True)
+def media_root(settings, tmp_path):
+    """Загруженное тестами — во временную папку, а не в backend/media."""
+    settings.MEDIA_ROOT = tmp_path / 'media'
+    return settings.MEDIA_ROOT
+
+
+@pytest.fixture(autouse=True)
+def clear_cache():
+    """Счётчики лимитов живут в кеше: без очистки тесты делили бы попытки
+    входа, и десятый по счёту вход в сессии упирался бы в 429."""
+    cache.clear()
+    yield
+    cache.clear()
 
 
 @pytest.fixture

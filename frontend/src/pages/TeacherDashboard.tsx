@@ -50,14 +50,15 @@ export function TeacherDashboard() {
   const today = useMemo(() => startOfDay(new Date()), [])
 
   const load = useCallback(async () => {
-    const [studentsRes, homeworkRes, todayRes] = await Promise.all([
-      studentsApi.list(),
-      homeworkApi.my(),
-      lessonsApi.list({ from: today.toISOString(), to: addDays(today, 1).toISOString() }),
+    const [allStudents, openHomework, todayItems] = await Promise.all([
+      studentsApi.all(),
+      // Лента «требуют внимания» — из всех незакрытых, а не из первой страницы
+      homeworkApi.open(),
+      lessonsApi.between(today.toISOString(), addDays(today, 1).toISOString()),
     ])
-    setStudents(studentsRes.data.results)
-    setHomework(homeworkRes.data.results)
-    setTodayLessons(todayRes.data.results)
+    setStudents(allStudents)
+    setHomework(openHomework)
+    setTodayLessons(todayItems)
   }, [today])
 
   useEffect(() => { load() }, [load])

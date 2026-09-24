@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, generics, permissions, status
@@ -5,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.common.qr import qr_svg_response
+from apps.common.throttling import ScopedThrottleMixin
 from .models import User, StudentInvite
 from .permissions import IsTeacher
 from .serializers import (
@@ -14,13 +16,15 @@ from .serializers import (
     StudentCreateSerializer,
     InviteInfoSerializer,
     InviteAcceptSerializer,
-    issue_tokens,
 )
+from .tokens import issue_tokens
 
 
-class LoginView(APIView):
-    """Вход по телефону и паролю."""
+class LoginView(ScopedThrottleMixin, APIView):
+    """Вход по телефону и паролю. Попыток — ограниченно: иначе пароль подбирают."""
     permission_classes = [permissions.AllowAny]
+    throttle_scope = 'login'
+    throttle_message = 'Слишком много попыток входа.'
 
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
@@ -101,20 +105,25 @@ class InviteInfoView(APIView):
         return Response(InviteInfoSerializer(invite).data)
 
 
-class InviteAcceptView(APIView):
+class InviteAcceptView(ScopedThrottleMixin, APIView):
     """Публично: ученик заполняет свои данные и получает доступ."""
     permission_classes = [permissions.AllowAny]
+    throttle_scope = 'join'
 
     def post(self, request, token):
-        invite = get_live_invite(token)
-        if invite.is_accepted:
-            return Response(
-                {'detail': 'Это приглашение уже использовано.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        serializer = InviteAcceptSerializer(data=request.data, context={'invite': invite})
-        serializer.is_valid(raise_exception=True)
-        student = serializer.save()
+        get_live_invite(token)
+        with transaction.atomic():
+            # Под блокировкой: два одновременных запроса по одной ссылке иначе
+            # оба увидели бы «не использовано» и оба задали бы пароль
+            invite = StudentInvite.objects.select_for_update().get(token=token)
+            if invite.is_accepted:
+                return Response(
+                    {'detail': 'Это приглашение уже использовано.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            serializer = InviteAcceptSerializer(data=request.data, context={'invite': invite})
+            serializer.is_valid(raise_exception=True)
+            student = serializer.save()
         return Response(issue_tokens(student), status=status.HTTP_201_CREATED)
 
 

@@ -12,8 +12,8 @@
 2. Собираются и выкладываются четыре образа — backend, frontend, hocuspocus,
    nginx. Каждый с двумя тегами: по коммиту и `latest`.
 3. Джоба выкладки ждёт нажатия. Запущенная, она отправляет на сервер
-   `docker-compose.yml` и `deploy.sh` и вызывает его: бэкап базы → `pull` →
-   `up -d` → уборка старых образов.
+   `docker-compose.yml`, `deploy.sh` и `backup.sh` и вызывает выкладку:
+   бэкап базы → `pull` → `up -d` → уборка старых образов.
 
 Ветки и мерж-реквесты проходят только тесты.
 
@@ -142,8 +142,49 @@ cd /opt/study-platform && IMAGE_TAG=<sha предыдущего коммита> 
 ```
 
 Откат кода миграции не отменяет. Если сломала именно миграция — восстанавливать
-из бэкапа: `/opt/study-platform/backups/`, снимается перед каждой выкладкой,
-хранятся последние 14.
+из бэкапа (см. ниже): перед каждой выкладкой снимается копия базы.
+
+## Бэкапы
+
+`backup.sh` снимает копию базы и загруженных файлов — работ учеников и
+вложений — в `/opt/study-platform/backups/`. Хранятся 14 копий базы и 3 копии
+файлов (`KEEP_BACKUPS`, `KEEP_MEDIA_BACKUPS`): файлы весят несравнимо больше,
+а диска сорок гигабайт. Перед выкладкой `deploy.sh` снимает только базу.
+
+Раз в сутки — по cron пользователя `deploy` (`crontab -e`):
+
+```cron
+30 3 * * * cd /opt/study-platform && BACKUP_REMOTE=backup@другой-хост:/srv/study-platform ./backup.sh >> backups/backup.log 2>&1
+```
+
+Копии на том же сервере спасают от неудачной миграции и случайного удаления,
+но не от потери самого сервера. Для этого `BACKUP_REMOTE`: после каждого
+запуска папка с копиями зеркалируется туда `rsync` по ssh, вместе с ротацией.
+Годится любая машина с ssh и местом на диске — хоть домашний NAS. Один раз:
+
+```bash
+sudo apt install rsync                          # на обеих машинах
+sudo -u deploy ssh-copy-id backup@другой-хост   # ключ deploy — без пароля
+sudo -u deploy ssh backup@другой-хост true      # принять ключ хоста
+```
+
+Без `BACKUP_REMOTE` копии остаются только на сервере. Упавший `pg_dump` не
+оставляет файла вовсе и завершает скрипт с ошибкой: недописанный дамп не
+должен сойти за годную копию и вытеснить при ротации настоящую.
+
+Восстановление:
+
+```bash
+cd /opt/study-platform
+# Остановить тех, кто держит соединения с базой: иначе dropdb откажет
+docker compose stop backend hocuspocus
+# База — в пустую: сначала пересоздать
+docker compose exec -T postgres sh -c 'dropdb -U "$POSTGRES_USER" "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
+gunzip -c backups/db-<дата>.sql.gz | docker compose exec -T postgres sh -c 'psql -q -U "$POSTGRES_USER" "$POSTGRES_DB"'
+# Файлы
+docker compose start backend hocuspocus
+gunzip -c backups/media-<дата>.tar.gz | docker compose exec -T backend tar -C /app/media -xf -
+```
 
 ## Чего здесь осознанно нет
 

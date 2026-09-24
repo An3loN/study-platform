@@ -61,16 +61,15 @@ def test_unmarking_cancels_an_earlier_acceptance(as_teacher, as_student, homewor
     assert submission_of(homework, student).accepted_at is None
 
 
-def test_teacher_marking_done_does_not_show_up_as_a_submission(as_teacher, homework, teacher):
+def test_teacher_cannot_mark_done(as_teacher, homework, teacher):
     """
-    В интерфейсе отметки у преподавателя нет, но endpoint её принимает.
-    Важно, что в выдачу такая строка не попадает: `submissions` строится по
-    адресатам задания, а преподаватель в них не входит.
+    Доступ к заданию у преподавателя есть, но отмечаться ему не за что.
+    Раньше endpoint это принимал и заводил «сдачу» от его имени.
     """
-    as_teacher.post(f'/api/homework/{homework.id}/done/', {'done': True})
+    response = as_teacher.post(f'/api/homework/{homework.id}/done/', {'done': True})
 
-    rows = as_teacher.get(f'/api/homework/{homework.id}/').data['submissions']
-    assert str(teacher.id) not in {row['student']['id'] for row in rows}
+    assert response.status_code == 403
+    assert not HomeworkSubmission.objects.filter(student=teacher).exists()
 
 
 # ── Приёмка ──────────────────────────────────────────────────────────────────
@@ -219,3 +218,11 @@ def test_revision_over_form_encoding_does_not_accept_the_work(as_teacher, homewo
     row = submission_of(homework, student)
     assert row.accepted_at is None
     assert row.revision_requested_at is not None
+
+
+# ── Мусор вместо идентификатора ──────────────────────────────────────────────
+
+def test_review_with_a_malformed_student_is_400(as_teacher, homework):
+    """Не-UUID раньше доходил до ORM и оборачивался 500."""
+    response = as_teacher.post(f'/api/homework/{homework.id}/review/', {'student': 'abc', 'accepted': True})
+    assert response.status_code == 400

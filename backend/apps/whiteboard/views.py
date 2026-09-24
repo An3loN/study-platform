@@ -1,3 +1,6 @@
+import base64
+import binascii
+
 from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -7,6 +10,7 @@ from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
 from apps.lessons.models import Lesson
 from apps.users.models import User
+from apps.users.tokens import password_is_current
 from .models import WhiteboardYjsState
 from .permissions import IsHocuspocus
 
@@ -62,6 +66,11 @@ class ValidateAccessView(APIView):
         except (KeyError, User.DoesNotExist):
             return Response({'detail': 'Невалидный токен.'}, status=status.HTTP_403_FORBIDDEN)
 
+        # Сменился пароль — токен, выданный до этого, на доску не пускает,
+        # как и в API (apps/users/tokens.py)
+        if not user.is_active or not password_is_current(access_token, user):
+            return Response({'detail': 'Невалидный токен.'}, status=status.HTTP_403_FORBIDDEN)
+
         if not lesson.is_participant(user):
             return Response({'detail': 'Нет доступа к уроку.'}, status=status.HTTP_403_FORBIDDEN)
 
@@ -90,12 +99,16 @@ class YjsStateView(APIView):
             # 404 — договорённость с Hocuspocus: «комната новая, состояния нет»
             # (см. loadYjsState в hocuspocus/src/api.ts).
             return Response(status=status.HTTP_404_NOT_FOUND)
-        return Response({'state': yjs.state})
+        return Response({'state': base64.b64encode(yjs.state).decode()})
 
     def put(self, request, room_id):
         state = request.data.get('state', '')
         if not state:
             return Response({'detail': 'state обязателен.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            state = base64.b64decode(state, validate=True)
+        except (binascii.Error, ValueError):
+            return Response({'detail': 'state — не base64.'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             lesson = Lesson.objects.get(room_id=room_id)

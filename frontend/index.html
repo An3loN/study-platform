@@ -16,11 +16,8 @@
   </head>
   <body>
     <div id="root"></div>
-    <script>
-      // Excalidraw ищет здесь свои шрифты и переводы; по умолчанию он тянет их
-      // с unpkg, а нам нужна работа без внешней сети (см. vite.config.ts)
-      window.EXCALIDRAW_ASSET_PATH = '/'
-    </script>
+    <!-- Отдельным файлом, а не inline: CSP в проде запрещает inline-скрипты -->
+    <script src="/excalidraw-env.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

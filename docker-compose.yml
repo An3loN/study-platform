@@ -58,7 +58,7 @@ services:
     image: ${REGISTRY_IMAGE:-study-platform}/frontend:${IMAGE_TAG:-latest}
     restart: unless-stopped
 
-  # ── Django ASGI (Daphne) ────────────────────────────────────────────────────
+  # ── Django (gunicorn) ───────────────────────────────────────────────────────
   backend:
     build: ./backend
     image: ${REGISTRY_IMAGE:-study-platform}/backend:${IMAGE_TAG:-latest}
@@ -76,7 +76,7 @@ services:
       - static_files:/app/staticfiles
       - media_files:/app/media
     healthcheck:
-      # Без обращения к базе: проверяем, что ASGI отвечает, а не что всё
+      # Без обращения к базе: проверяем, что сервер отвечает, а не что всё
       # приложение здорово — иначе healthcheck начнёт врать при первой же
       # нагрузке на postgres
       test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.create_connection(('127.0.0.1',8000),2); s.close()\""]
@@ -92,8 +92,6 @@ services:
     restart: unless-stopped
     env_file: .env
     depends_on:
-      redis:
-        condition: service_healthy
       backend:
         condition: service_started
 
@@ -135,7 +133,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    # Память ограничена намеренно: Redis держит только состояние доски и
+    # Память ограничена намеренно: Redis держит только лимиты входа и
     # очередь Celery, а на сервере с двумя гигабайтами он не должен вытеснить
     # приложение
     command: >

@@ -1,3 +1,5 @@
+from bisect import bisect_right
+
 from django.db.models import F
 from rest_framework import serializers
 
@@ -6,7 +8,67 @@ from apps.users.serializers import UserPublicSerializer
 from .models import Lesson, Homework, HomeworkSubmission, HomeworkMessage
 
 
-def next_lesson_at(homework, student=None):
+class LessonSchedule:
+    """
+    Уроки одного преподавателя по времени — чтобы искать «следующий урок»
+    для срока сдачи без запроса на каждое задание.
+
+    Грузится одним запросом на страницу (см. lesson_schedule) и только с
+    момента, раньше которого страница не заглядывает: вся история не нужна.
+    """
+
+    def __init__(self, teacher_id, after):
+        self.after = after
+        lessons = {}
+        rows = (
+            Lesson.objects
+            .filter(teacher_id=teacher_id, scheduled_at__gt=after)
+            .values_list('id', 'scheduled_at', 'students')
+        )
+        for lesson_id, scheduled_at, student_id in rows:
+            _, students = lessons.setdefault(lesson_id, (scheduled_at, set()))
+            if student_id is not None:
+                students.add(student_id)
+        self.items = sorted(
+            (scheduled_at, lesson_id, students)
+            for lesson_id, (scheduled_at, students) in lessons.items()
+        )
+        self.times = [item[0] for item in self.items]
+
+    def next_after(self, after, exclude=None, students=None):
+        """
+        Ближайший урок строго после `after`, кроме `exclude`. `students` —
+        множество учеников, хотя бы один из которых должен быть на уроке;
+        пустое или None — подойдёт любой урок.
+        """
+        for scheduled_at, lesson_id, attendees in self.items[bisect_right(self.times, after):]:
+            if lesson_id == exclude:
+                continue
+            if not students or attendees & students:
+                return scheduled_at
+        return None
+
+
+def due_anchor(homework):
+    """От чего отсчитывается «до следующего урока»: от урока, а без него — от выдачи."""
+    return homework.lesson.scheduled_at if homework.lesson_id else homework.created_at
+
+
+def lesson_schedule(serializer, homework, after):
+    """Расписание преподавателя задания, общее на весь ответ."""
+    cache = serializer.context.setdefault('lesson_schedules', {})
+    schedule = cache.get(homework.teacher_id)
+    if schedule is None or after < schedule.after:
+        # Отсчёт берём сразу от самого раннего задания страницы: иначе
+        # каждое следующее, более старое, перезагружало бы расписание
+        page = getattr(serializer.parent, 'instance', None) or []
+        anchors = [due_anchor(item) for item in page if item.teacher_id == homework.teacher_id]
+        earliest = min([a for a in anchors if a is not None] + [after])
+        schedule = cache[homework.teacher_id] = LessonSchedule(homework.teacher_id, earliest)
+    return schedule
+
+
+def next_lesson_at(serializer, homework, student=None):
     """
     Срок сдачи — ближайший следующий урок после того, на котором задано.
     Для ученика считаем по его собственным урокам, для преподавателя —
@@ -15,24 +77,16 @@ def next_lesson_at(homework, student=None):
     У задания без урока отсчёт идёт от момента, когда его выдали: «до
     следующего занятия» там означает ровно то же самое.
     """
-    lesson = homework.lesson
-    after = lesson.scheduled_at if lesson else homework.created_at
+    after = due_anchor(homework)
     if after is None:
         return None
-
-    query = Lesson.objects.filter(teacher_id=homework.teacher_id, scheduled_at__gt=after)
-    if lesson:
-        query = query.exclude(pk=lesson.pk)
-
     if student is not None:
-        query = query.filter(students=student)
+        students = {student.id}
     else:
-        student_ids = list(homework.student_set.values_list('id', flat=True))
-        if student_ids:
-            query = query.filter(students__in=student_ids)
-
-    following = query.order_by('scheduled_at').first()
-    return following.scheduled_at if following else None
+        students = {item.id for item in homework.student_set.all()}
+    return lesson_schedule(serializer, homework, after).next_after(
+        after, exclude=homework.lesson_id, students=students,
+    )
 
 
 def thread_messages(homework, student_id):
@@ -168,7 +222,7 @@ class HomeworkSerializer(serializers.ModelSerializer):
             return obj.due_at
         user = self.context['request'].user
         student = user if getattr(user, 'is_student', False) else None
-        return next_lesson_at(obj, student)
+        return next_lesson_at(self, obj, student)
 
     def _submission_for(self, obj, student):
         """
@@ -199,7 +253,8 @@ class HomeworkSerializer(serializers.ModelSerializer):
     def get_my_submission(self, obj):
         user = self.context['request'].user
         submission = next((s for s in obj.submissions.all() if s.student_id == user.id), None)
-        if submission is None and obj.student_set.filter(pk=user.pk).exists():
+        # all(), а не filter(): адресаты уже подгружены, запрос не нужен
+        if submission is None and any(student.id == user.id for student in obj.student_set.all()):
             submission = HomeworkSubmission(homework=obj, student=user)
         if submission is None:
             return None
@@ -236,7 +291,10 @@ class LessonListSerializer(serializers.ModelSerializer):
         ]
 
     def get_homework_count(self, obj):
-        return obj.homework.count()
+        # В списке число приходит аннотацией, на странице урока задания и так
+        # подгружены целиком — считать их отдельным запросом незачем
+        total = getattr(obj, 'homework_total', None)
+        return total if total is not None else len(obj.homework.all())
 
     def _is_teacher(self, obj):
         request = self.context.get('request')

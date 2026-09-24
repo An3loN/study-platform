@@ -1,17 +1,23 @@
 import * as Y from 'yjs'
 import { Server, onAuthenticatePayload, onLoadDocumentPayload, onStoreDocumentPayload } from '@hocuspocus/server'
-import { Redis } from '@hocuspocus/extension-redis'
 import { validateAccess, loadYjsState, saveYjsState } from './api.js'
-import { pruneUnusedFiles } from './cleanup.js'
+import { pruneUnusedFilesIfIdle } from './cleanup.js'
 import type { ConnectionContext } from './types.js'
 
 const PORT = parseInt(process.env.HOCUSPOCUS_PORT ?? '1234', 10)
-const REDIS_HOST = process.env.REDIS_HOST ?? 'redis'
-const REDIS_PORT = parseInt(process.env.REDIS_PORT ?? '6379', 10)
 
 // Имя документа = room_id урока (UUID), передаётся клиентом при подключении
 const server = Server.configure({
   port: PORT,
+
+  // Как часто сохранять документ во время урока: через 5 секунд тишины, но
+  // не реже раза в 30 секунд непрерывной работы. Каждое сохранение пишет
+  // документ целиком, вместе с картинками, — по умолчанию (2 и 10 секунд)
+  // это мегабайты в Postgres каждые несколько секунд. При уходе последнего
+  // участника сохраняется сразу, так что теряется самое большее полминуты —
+  // и только если упадёт сам Hocuspocus.
+  debounce: 5_000,
+  maxDebounce: 30_000,
 
   /**
    * onAuthenticate — вызывается при каждом новом WS-подключении.
@@ -39,6 +45,13 @@ const server = Server.configure({
       const update = Buffer.from(base64State, 'base64')
       Y.applyUpdate(document, update)
       console.log(`[persistence] Состояние загружено для комнаты ${documentName}`)
+      // Первый клиент ещё не подключён — комната пуста, чистить можно. Здесь
+      // чистка гарантирована: при уходе последнего она случается, только если
+      // оставалось несохранённое, а после тихого конца урока его нет
+      const removed = pruneUnusedFilesIfIdle(document)
+      if (removed > 0) {
+        console.log(`[cleanup] ${documentName}: при загрузке удалено ненужных картинок — ${removed}`)
+      }
     } else {
       console.log(`[persistence] Новая комната ${documentName}, состояние пустое`)
     }
@@ -46,12 +59,14 @@ const server = Server.configure({
   },
 
   /**
-   * onStoreDocument — вызывается когда все клиенты отключились от документа.
-   * Сохраняем финальное Yjs-состояние в Django.
+   * onStoreDocument — через 5–30 секунд после правок (debounce выше) и
+   * сразу, когда отключился последний клиент. Сохраняем Yjs-состояние в Django.
    */
   async onStoreDocument({ documentName, document }: onStoreDocumentPayload): Promise<void> {
     const sizeBefore = Y.encodeStateAsUpdate(document).length
-    const removed = pruneUnusedFiles(document)
+    // Картинки чистим только в пустой комнате: посреди урока их ещё может
+    // вернуть Ctrl+Z (см. cleanup.ts)
+    const removed = pruneUnusedFilesIfIdle(document)
 
     const update = Y.encodeStateAsUpdate(document)
     if (removed > 0) {
@@ -69,14 +84,11 @@ const server = Server.configure({
     }
   },
 
-  extensions: [
-    new Redis({
-      host: REDIS_HOST,
-      port: REDIS_PORT,
-      // Используем отдельную DB (2) чтобы не конфликтовать с Django Channels (0) и Celery (1)
-      options: { db: 2 },
-    }),
-  ],
+  // Redis-расширения нет намеренно: оно нужно, только когда экземпляров
+  // Hocuspocus несколько и они пересылают друг другу правки одной комнаты.
+  // Экземпляр один — расширение лишь гоняло каждую правку через Redis и
+  // делало его обязательным для доски. Понадобится второй экземпляр —
+  // вернуть @hocuspocus/extension-redis (db 2 для него свободна).
 })
 
 server.listen().then(() => {

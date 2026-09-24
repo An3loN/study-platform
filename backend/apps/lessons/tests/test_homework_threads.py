@@ -183,3 +183,9 @@ def test_file_without_text_is_fine(as_student, homework):
     })
 
     assert response.status_code == 201
+
+
+def test_malformed_thread_student_is_400(as_teacher, homework):
+    """Не-UUID раньше доходил до ORM и оборачивался 500."""
+    response = as_teacher.get(f'/api/homework/{homework.id}/messages/', {'student': 'abc'})
+    assert response.status_code == 400

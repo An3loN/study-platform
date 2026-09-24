@@ -13,13 +13,16 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
+from apps.users.tokens import issue_tokens
+from apps.whiteboard.models import WhiteboardYjsState
+
 pytestmark = pytest.mark.django_db
 
 SECRET = {'HTTP_X_HOCUSPOCUS_SECRET': 'test-secret'}
 
 
 def token_for(user):
-    return str(RefreshToken.for_user(user).access_token)
+    return issue_tokens(user)['access']
 
 
 def guest_token(lesson, name='Гость'):
@@ -164,10 +167,28 @@ def test_state_round_trip(api, make_lesson, student):
 
 def test_state_is_overwritten_not_duplicated(api, make_lesson, student):
     lesson = make_lesson([student])
-    api.put(f'/api/whiteboard/{lesson.room_id}/yjs-state/', {'state': 'первое'}, **SECRET)
-    api.put(f'/api/whiteboard/{lesson.room_id}/yjs-state/', {'state': 'второе'}, **SECRET)
+    api.put(f'/api/whiteboard/{lesson.room_id}/yjs-state/', {'state': 'AAAA'}, **SECRET)
+    api.put(f'/api/whiteboard/{lesson.room_id}/yjs-state/', {'state': 'AQID'}, **SECRET)
 
-    assert api.get(f'/api/whiteboard/{lesson.room_id}/yjs-state/', **SECRET).data['state'] == 'второе'
+    assert api.get(f'/api/whiteboard/{lesson.room_id}/yjs-state/', **SECRET).data['state'] == 'AQID'
+    assert WhiteboardYjsState.objects.count() == 1
+
+
+def test_state_is_stored_as_bytes(api, make_lesson, student):
+    """base64 — только на проводе: в базе он занимал бы на треть больше."""
+    lesson = make_lesson([student])
+    api.put(f'/api/whiteboard/{lesson.room_id}/yjs-state/', {'state': 'AAECAw=='}, **SECRET)
+
+    assert bytes(WhiteboardYjsState.objects.get(lesson=lesson).state) == b'\x00\x01\x02\x03'
+
+
+def test_state_that_is_not_base64_is_rejected(api, make_lesson, student):
+    lesson = make_lesson([student])
+
+    response = api.put(f'/api/whiteboard/{lesson.room_id}/yjs-state/', {'state': 'не base64'}, **SECRET)
+
+    assert response.status_code == 400
+    assert not WhiteboardYjsState.objects.exists()
 
 
 def test_state_needs_the_secret(api, make_lesson, student):
@@ -181,3 +202,25 @@ def test_snapshot_endpoint_is_gone(api, make_lesson, student, teacher):
     api.force_authenticate(teacher)
 
     assert api.get(f'/api/whiteboard/{lesson.id}/snapshot/').status_code == 404
+
+
+# ── Смена пароля ─────────────────────────────────────────────────────────────
+
+def test_token_issued_before_password_change_is_refused(api, make_lesson, student):
+    """На доску, как и в API, не пускает токен, выданный до смены пароля."""
+    lesson = make_lesson([student])
+    token = token_for(student)
+    student.set_password('NewStrongPass42')
+    student.save()
+
+    response = api.post('/api/whiteboard/validate-access/', {'token': token, 'room_id': str(lesson.room_id)}, **SECRET)
+    assert response.status_code == 403
+
+
+def test_token_without_password_stamp_is_refused(api, make_lesson, student):
+    """Токен в обход issue_tokens — без отпечатка — не годится."""
+    lesson = make_lesson([student])
+    token = str(RefreshToken.for_user(student).access_token)
+
+    response = api.post('/api/whiteboard/validate-access/', {'token': token, 'room_id': str(lesson.room_id)}, **SECRET)
+    assert response.status_code == 403
