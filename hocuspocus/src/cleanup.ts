@@ -11,8 +11,8 @@ export type RoomDocument = Y.Doc & { getConnectionsCount(): number }
  * количество удалённых файлов.
  *
  * Проверка здесь, а не в том, откуда зовут: `onStoreDocument` срабатывает не
- * только когда ушёл последний клиент, но и через 2–10 секунд после каждой
- * правки посреди урока (debounce Hocuspocus). Без неё удалённая картинка
+ * только когда ушёл последний клиент, но и через 5–30 секунд после каждой
+ * правки посреди урока (debounce, см. server.ts). Без неё удалённая картинка
  * теряла тело через пару секунд, и Ctrl+Z возвращал пустую рамку.
  */
 export function pruneUnusedFilesIfIdle(document: RoomDocument): number {

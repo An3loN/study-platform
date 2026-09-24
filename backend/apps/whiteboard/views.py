@@ -1,3 +1,6 @@
+import base64
+import binascii
+
 from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -96,12 +99,16 @@ class YjsStateView(APIView):
             # 404 — договорённость с Hocuspocus: «комната новая, состояния нет»
             # (см. loadYjsState в hocuspocus/src/api.ts).
             return Response(status=status.HTTP_404_NOT_FOUND)
-        return Response({'state': yjs.state})
+        return Response({'state': base64.b64encode(yjs.state).decode()})
 
     def put(self, request, room_id):
         state = request.data.get('state', '')
         if not state:
             return Response({'detail': 'state обязателен.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            state = base64.b64decode(state, validate=True)
+        except (binascii.Error, ValueError):
+            return Response({'detail': 'state — не base64.'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             lesson = Lesson.objects.get(room_id=room_id)

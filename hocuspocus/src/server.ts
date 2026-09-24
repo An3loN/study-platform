@@ -13,6 +13,15 @@ const REDIS_PORT = parseInt(process.env.REDIS_PORT ?? '6379', 10)
 const server = Server.configure({
   port: PORT,
 
+  // Как часто сохранять документ во время урока: через 5 секунд тишины, но
+  // не реже раза в 30 секунд непрерывной работы. Каждое сохранение пишет
+  // документ целиком, вместе с картинками, — по умолчанию (2 и 10 секунд)
+  // это мегабайты в Postgres каждые несколько секунд. При уходе последнего
+  // участника сохраняется сразу, так что теряется самое большее полминуты —
+  // и только если упадёт сам Hocuspocus.
+  debounce: 5_000,
+  maxDebounce: 30_000,
+
   /**
    * onAuthenticate — вызывается при каждом новом WS-подключении.
    * token  — JWT из query-параметра ?token=
@@ -53,7 +62,7 @@ const server = Server.configure({
   },
 
   /**
-   * onStoreDocument — через 2–10 секунд после правок (debounce Hocuspocus) и
+   * onStoreDocument — через 5–30 секунд после правок (debounce выше) и
    * сразу, когда отключился последний клиент. Сохраняем Yjs-состояние в Django.
    */
   async onStoreDocument({ documentName, document }: onStoreDocumentPayload): Promise<void> {

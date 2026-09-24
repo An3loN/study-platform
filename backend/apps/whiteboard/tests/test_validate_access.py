@@ -14,6 +14,7 @@ from django.utils import timezone
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
 from apps.users.tokens import issue_tokens
+from apps.whiteboard.models import WhiteboardYjsState
 
 pytestmark = pytest.mark.django_db
 
@@ -166,10 +167,28 @@ def test_state_round_trip(api, make_lesson, student):
 
 def test_state_is_overwritten_not_duplicated(api, make_lesson, student):
     lesson = make_lesson([student])
-    api.put(f'/api/whiteboard/{lesson.room_id}/yjs-state/', {'state': 'первое'}, **SECRET)
-    api.put(f'/api/whiteboard/{lesson.room_id}/yjs-state/', {'state': 'второе'}, **SECRET)
+    api.put(f'/api/whiteboard/{lesson.room_id}/yjs-state/', {'state': 'AAAA'}, **SECRET)
+    api.put(f'/api/whiteboard/{lesson.room_id}/yjs-state/', {'state': 'AQID'}, **SECRET)
 
-    assert api.get(f'/api/whiteboard/{lesson.room_id}/yjs-state/', **SECRET).data['state'] == 'второе'
+    assert api.get(f'/api/whiteboard/{lesson.room_id}/yjs-state/', **SECRET).data['state'] == 'AQID'
+    assert WhiteboardYjsState.objects.count() == 1
+
+
+def test_state_is_stored_as_bytes(api, make_lesson, student):
+    """base64 — только на проводе: в базе он занимал бы на треть больше."""
+    lesson = make_lesson([student])
+    api.put(f'/api/whiteboard/{lesson.room_id}/yjs-state/', {'state': 'AAECAw=='}, **SECRET)
+
+    assert bytes(WhiteboardYjsState.objects.get(lesson=lesson).state) == b'\x00\x01\x02\x03'
+
+
+def test_state_that_is_not_base64_is_rejected(api, make_lesson, student):
+    lesson = make_lesson([student])
+
+    response = api.put(f'/api/whiteboard/{lesson.room_id}/yjs-state/', {'state': 'не base64'}, **SECRET)
+
+    assert response.status_code == 400
+    assert not WhiteboardYjsState.objects.exists()
 
 
 def test_state_needs_the_secret(api, make_lesson, student):
