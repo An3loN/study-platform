@@ -132,8 +132,8 @@ deploy:
     - cp "$SSH_PRIVATE_KEY" ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
     - cp "$SSH_KNOWN_HOSTS" ~/.ssh/known_hosts && chmod 644 ~/.ssh/known_hosts
   script:
-    # Серверу нужны только два файла проекта, всё остальное приезжает образами.
+    # Серверу нужны только три файла проекта, всё остальное приезжает образами.
     # `.env` лежит на сервере и не трогается никогда.
-    - scp -P "${SSH_PORT:-22}" docker-compose.yml deploy/deploy.sh "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/"
-    - ssh -p "${SSH_PORT:-22}" "$SSH_USER@$SSH_HOST" "chmod +x $DEPLOY_PATH/deploy.sh"
+    - scp -P "${SSH_PORT:-22}" docker-compose.yml deploy/deploy.sh deploy/backup.sh "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/"
+    - ssh -p "${SSH_PORT:-22}" "$SSH_USER@$SSH_HOST" "chmod +x $DEPLOY_PATH/deploy.sh $DEPLOY_PATH/backup.sh"
     - ssh -p "${SSH_PORT:-22}" "$SSH_USER@$SSH_HOST" "cd $DEPLOY_PATH && IMAGE_TAG=$IMAGE_TAG ./deploy.sh"
