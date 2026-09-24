@@ -103,8 +103,10 @@ class StudentSerializer(serializers.ModelSerializer):
         return obj.has_usable_password() and bool(obj.phone)
 
     def _invite(self, obj):
-        # Приглашение живёт, пока ученик не завершил регистрацию
-        return obj.invites.filter(accepted_at__isnull=True).first()
+        # Приглашение живёт, пока ученик не завершил регистрацию. Перебор, а не
+        # filter(): приглашения подгружены заранее (prefetch_related во вьюхе),
+        # а filter шёл бы в базу — по три раза на каждого ученика
+        return next((invite for invite in obj.invites.all() if invite.accepted_at is None), None)
 
     def get_invite_token(self, obj):
         invite = self._invite(obj)

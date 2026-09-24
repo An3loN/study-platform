@@ -2,7 +2,7 @@ import uuid
 from bisect import bisect_right
 from datetime import datetime, time, timedelta
 
-from django.db.models import DateTimeField, DurationField, ExpressionWrapper, F, Q, Value
+from django.db.models import Count, DateTimeField, DurationField, ExpressionWrapper, F, Prefetch, Q, Value
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -87,6 +87,13 @@ def uuid_param(value, field):
         raise exceptions.ValidationError({field: 'Ожидается идентификатор (UUID).'})
 
 
+def lesson_detail_queryset():
+    """Урок со всем, что читает LessonDetailSerializer, включая задания целиком."""
+    return Lesson.objects.select_related('teacher', 'cancelled_by').prefetch_related(
+        'students', Prefetch('homework', queryset=Homework.objects.with_details()),
+    )
+
+
 def lessons_for(user):
     if user.is_teacher:
         return Lesson.objects.filter(teacher=user)
@@ -122,11 +129,16 @@ class LessonListCreateView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        # Без distinct: каждый фильтр по участникам — отдельный join по
+        # уникальной паре «урок + ученик», дублей он не даёт. А DISTINCT по
+        # всем колонкам, включая заметки и комментарий, Postgres пришлось бы
+        # сравнивать целиком. Задания в списке нужны только числом — считаем
+        # их в том же запросе, а не грузим целиком.
         queryset = (
             lessons_for(self.request.user)
-            .prefetch_related('students', 'homework')
-            .select_related('teacher')
-            .distinct()
+            .select_related('teacher', 'cancelled_by')
+            .prefetch_related('students')
+            .annotate(homework_total=Count('homework', distinct=True))
         )
         params = self.request.query_params
 
@@ -189,7 +201,7 @@ class LessonDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return Lesson.objects.select_related('teacher').prefetch_related('students', 'homework')
+        return lesson_detail_queryset()
 
     def get_serializer_class(self):
         if self.request.method in ('PUT', 'PATCH'):
@@ -212,7 +224,9 @@ class LessonDetailView(generics.RetrieveUpdateDestroyAPIView):
         serializer.save()
         if 'students' in serializer.validated_data:
             lesson.students.set(serializer.validated_data['students'])
-        lesson.refresh_from_db()
+        # Заново из базы и со всеми подгрузками: refresh_from_db сбросил бы их,
+        # и сериализатор пошёл бы за каждым заданием отдельно
+        lesson = lesson_detail_queryset().get(pk=lesson.pk)
         return Response(LessonDetailSerializer(lesson, context=self.get_serializer_context()).data)
 
 
@@ -244,6 +258,7 @@ class LessonCancelView(APIView):
         lesson.cancel_reason = reason
         lesson.save(update_fields=['cancelled_at', 'cancelled_by', 'cancel_reason'])
 
+        lesson = lesson_detail_queryset().get(pk=lesson.pk)
         return Response(LessonDetailSerializer(lesson, context={'request': request}).data)
 
 
@@ -322,7 +337,7 @@ class HomeworkListCreateView(generics.ListCreateAPIView):
         return lesson
 
     def get_queryset(self):
-        return self.get_lesson().homework.prefetch_related('submissions__student', 'messages', 'lesson__students', 'students')
+        return Homework.objects.filter(lesson=self.get_lesson()).with_details()
 
     def perform_create(self, serializer):
         lesson = self.get_lesson()
@@ -340,7 +355,7 @@ class HomeworkDetailView(generics.RetrieveUpdateDestroyAPIView):
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
-        return Homework.objects.select_related('lesson').prefetch_related('submissions__student', 'messages', 'lesson__students', 'students')
+        return Homework.objects.with_details()
 
     def get_object(self):
         homework = get_object_or_404(self.get_queryset(), pk=self.kwargs['pk'])
@@ -355,7 +370,7 @@ class HomeworkDetailView(generics.RetrieveUpdateDestroyAPIView):
 def get_homework_for(user, pk, teacher_only=False):
     """Задание, если пользователь имеет к нему отношение."""
     homework = get_object_or_404(
-        Homework.objects.select_related('lesson').prefetch_related('submissions__student', 'messages', 'lesson__students', 'students'),
+        Homework.objects.with_details(),
         pk=pk,
     )
     if teacher_only:
@@ -394,7 +409,7 @@ class HomeworkDoneView(APIView):
             submission.accepted_at = None
         submission.save()
 
-        homework.refresh_from_db()
+        homework = Homework.objects.with_details().get(pk=homework.pk)
         return Response(HomeworkSerializer(homework, context={'request': request}).data)
 
 
@@ -448,7 +463,7 @@ class HomeworkReviewView(APIView):
             submission.done_at = None
         submission.save()
 
-        homework.refresh_from_db()
+        homework = Homework.objects.with_details().get(pk=homework.pk)
         return Response(HomeworkSerializer(homework, context={'request': request}).data)
 
 
@@ -519,8 +534,7 @@ class MyHomeworkListView(generics.ListCreateAPIView):
         queryset = (
             Homework.objects
             .filter(mine)
-            .select_related('lesson', 'teacher')
-            .prefetch_related('submissions__student', 'messages', 'lesson__students', 'students')
+            .with_details()
         )
 
         # ?student=<uuid> — задания одного ученика, для его страницы.
