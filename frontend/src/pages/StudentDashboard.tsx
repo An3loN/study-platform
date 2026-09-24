@@ -53,11 +53,12 @@ export function StudentDashboard() {
   const today = useMemo(() => startOfDay(new Date()), [])
 
   const load = useCallback(async () => {
-    const [homeworkRes, todayItems] = await Promise.all([
-      homeworkApi.my(),
+    const [openHomework, todayItems] = await Promise.all([
+      // «К сдаче» — все непринятые, а не отобранные из первой страницы
+      homeworkApi.open(),
       lessonsApi.between(today.toISOString(), addDays(today, 1).toISOString()),
     ])
-    setHomework(homeworkRes.data.results)
+    setHomework(openHomework)
     setTodayLessons(todayItems)
   }, [today])
 

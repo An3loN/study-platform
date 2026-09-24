@@ -48,15 +48,17 @@ export function StudentDetailPage() {
 
   const load = useCallback(async () => {
     if (!studentId) return
-    const [studentRes, lessonsRes, homeworkRes, statsRes] = await Promise.all([
+    const [studentRes, allLessons, allHomework, statsRes] = await Promise.all([
       studentsApi.get(studentId),
-      lessonsApi.list({ student: studentId }),
-      homeworkApi.my({ student: studentId }),
+      // Целиком: на странице и сами списки, и их число — первая страница
+      // выдачи обрезала и то и другое на двадцати
+      lessonsApi.allOf(studentId),
+      homeworkApi.allOf(studentId),
       studentsApi.stats(studentId),
     ])
     setStudent(studentRes.data)
-    setLessons(lessonsRes.data.results)
-    setHomework(homeworkRes.data.results)
+    setLessons(allLessons)
+    setHomework(allHomework)
     setStats(statsRes.data)
     setDuration(studentRes.data.defaultLessonDuration ? String(studentRes.data.defaultLessonDuration) : '')
     setLoading(false)

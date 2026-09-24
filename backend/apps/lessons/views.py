@@ -2,7 +2,9 @@ import uuid
 from bisect import bisect_right
 from datetime import datetime, time, timedelta
 
-from django.db.models import Count, DateTimeField, DurationField, ExpressionWrapper, F, Prefetch, Q, Value
+from django.db.models import (
+    Count, DateTimeField, DurationField, Exists, ExpressionWrapper, F, OuterRef, Prefetch, Q, Value,
+)
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -514,10 +516,44 @@ class HomeworkMessageListCreateView(generics.ListCreateAPIView):
         serializer.save(homework=homework, author=self.request.user, student_id=student_id)
 
 
+def open_homework_for(user):
+    """
+    Условие «задание ещё не закрыто» — для лент, которым нужны все такие
+    задания, а не первая страница: «требуют внимания» у преподавателя и
+    «к сдаче» у ученика. Раньше они фильтровали первые двадцать заданий на
+    фронте, и старая непроверенная работа из ленты молча пропадала.
+
+    Закрыто — значит принято. Ученику важна только своя работа, а
+    преподавателю задание закрыто, когда приняли у всех адресатов: пока
+    хоть один не сдан или не проверен, оно требует внимания.
+    """
+    if not user.is_teacher:
+        return ~Exists(HomeworkSubmission.objects.filter(
+            homework=OuterRef('pk'), student=user, accepted_at__isnull=False,
+        ))
+
+    # Внутри подзапроса по адресатам OuterRef('user_id') — сам адресат,
+    # OuterRef(OuterRef('pk')) — задание, для которого его ищем
+    unaccepted = ~Exists(HomeworkSubmission.objects.filter(
+        homework=OuterRef(OuterRef('pk')), student=OuterRef('user_id'), accepted_at__isnull=False,
+    ))
+    # Адресаты — ученики урока, а у задания без урока — перечисленные явно,
+    # как в Homework.student_set
+    lesson_waits = Exists(
+        Lesson.students.through.objects.filter(lesson_id=OuterRef('lesson_id')).filter(unaccepted),
+    )
+    own_waits = Exists(
+        Homework.students.through.objects.filter(homework_id=OuterRef('pk')).filter(unaccepted),
+    )
+    return (Q(lesson__isnull=False) & lesson_waits) | (Q(lesson__isnull=True) & own_waits)
+
+
 class MyHomeworkListView(generics.ListCreateAPIView):
     """
     GET  — домашние задания пользователя, и привязанные к уроку, и нет.
            ?student=<uuid> — только задания этого ученика.
+           ?open=1 — только незакрытые: у преподавателя — где хоть кому-то
+           работу ещё не приняли, у ученика — где не приняли его.
     POST — задание без урока: преподаватель сам перечисляет, кому задаёт.
            Задание к занятию создаётся своим маршрутом, там адресаты уже
            известны из урока.
@@ -543,6 +579,9 @@ class MyHomeworkListView(generics.ListCreateAPIView):
         if student:
             student = uuid_param(student, 'student')
             queryset = queryset.filter(Q(lesson__students__id=student) | Q(students__id=student))
+
+        if parse_bool(self.request.query_params.get('open')):
+            queryset = queryset.filter(open_homework_for(user))
 
         return queryset.distinct()
 

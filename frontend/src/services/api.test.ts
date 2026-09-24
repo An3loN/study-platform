@@ -1,7 +1,7 @@
 import axios from 'axios'
 import MockAdapter from 'axios-mock-adapter'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { http, studentsApi } from './api'
+import { homeworkApi, http, studentsApi } from './api'
 
 /**
  * Транспортный слой: конвертация ключей и обработка 401.
@@ -315,5 +315,22 @@ describe('все страницы списка', () => {
 
     expect(await studentsApi.all()).toEqual([])
     expect(onHttp.history.get).toHaveLength(1)
+  })
+})
+
+describe('незакрытые задания', () => {
+  it('просит у сервера фильтр и забирает все страницы', async () => {
+    // Фильтровать на фронте первую страницу нельзя: старое непроверенное
+    // задание из ленты «требуют внимания» тогда пропадало
+    onHttp.onGet('/homework/').reply((config) => (
+      config.params.page === 1
+        ? [200, { count: 2, next: 'есть', previous: null, results: [{ id: 'h1' }] }]
+        : [200, { count: 2, next: null, previous: 'есть', results: [{ id: 'h2' }] }]
+    ))
+
+    const items = await homeworkApi.open()
+
+    expect(items.map((h) => h.id)).toEqual(['h1', 'h2'])
+    expect(onHttp.history.get[0].params).toMatchObject({ open: 1, page_size: 100 })
   })
 })

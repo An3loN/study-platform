@@ -190,23 +190,8 @@ export const lessonsApi = {
    * а обрезать его первой страницей нельзя: пропавший урок никто не заметит.
    */
   between: (from: string, to: string) => fetchAll<Lesson>('/lessons/', { from, to }),
-  list: (params?: {
-    upcoming?: boolean
-    past?: boolean
-    student?: string
-    /** Границы промежутка в ISO с местным смещением — для календаря */
-    from?: string
-    to?: string
-  }) =>
-    http.get<Paginated<Lesson>>('/lessons/', {
-      params: {
-        ...(params?.upcoming ? { upcoming: 1 } : {}),
-        ...(params?.past ? { past: 1 } : {}),
-        ...(params?.student ? { student: params.student } : {}),
-        ...(params?.from ? { from: params.from } : {}),
-        ...(params?.to ? { to: params.to } : {}),
-      },
-    }),
+  /** Все уроки одного ученика — лента на его странице вместе с числом */
+  allOf: (student: string) => fetchAll<Lesson>('/lessons/', { student }),
   get: (id: string) => http.get<LessonDetail>(`/lessons/${id}/`),
   create: (data: LessonInput) => http.post<LessonDetail>('/lessons/', data),
   update: (id: string, data: LessonInput) => http.patch<LessonDetail>(`/lessons/${id}/`, data),
@@ -225,10 +210,15 @@ export const lessonsApi = {
 // ── Домашние задания ─────────────────────────────────────────────────────────
 
 export const homeworkApi = {
-  my: (params?: { student?: string }) =>
-    http.get<Paginated<Homework>>('/homework/', {
-      params: params?.student ? { student: params.student } : {},
-    }),
+  /**
+   * Все незакрытые задания: у преподавателя — где хоть кому-то работу ещё не
+   * приняли, у ученика — где не приняли его. Для лент «требуют внимания» и
+   * «к сдаче»: первая страница выдачи молча теряла старое непроверенное.
+   */
+  open: () => fetchAll<Homework>('/homework/', { open: 1 }),
+
+  /** Все задания одного ученика — для его страницы, где они видны списком */
+  allOf: (student: string) => fetchAll<Homework>('/homework/', { student }),
 
   /**
    * Задание без урока: адресатов перечисляем сами. У задания с уроком они
