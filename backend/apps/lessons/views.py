@@ -136,11 +136,16 @@ class LessonListCreateView(generics.ListCreateAPIView):
         # всем колонкам, включая заметки и комментарий, Postgres пришлось бы
         # сравнивать целиком. Задания в списке нужны только числом — считаем
         # их в том же запросе, а не грузим целиком.
+        #
+        # Порядок — явно: с аннотацией Count запрос получает GROUP BY, а в
+        # таких Django Meta.ordering не применяет, и лента уроков на странице
+        # ученика шла бы в случайном порядке.
         queryset = (
             lessons_for(self.request.user)
             .select_related('teacher', 'cancelled_by')
             .prefetch_related('students')
             .annotate(homework_total=Count('homework', distinct=True))
+            .order_by(*Lesson._meta.ordering)
         )
         params = self.request.query_params
 

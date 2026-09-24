@@ -37,6 +37,10 @@ time-machine         = "2.16.0"
 # запускались бы с debug-toolbar.
 addopts = "--ds=config.settings.test"
 python_files = ["test_*.py"]
+# Неупорядоченная выдача при пагинации — ошибка: страницы начинают терять и
+# дублировать строки. Так уже случилось, когда аннотация Count добавила
+# GROUP BY, а с ним Django молча перестаёт применять Meta.ordering.
+filterwarnings = ["error::django.core.paginator.UnorderedObjectListWarning"]
 testpaths = ["apps"]
 
 [build-system]
