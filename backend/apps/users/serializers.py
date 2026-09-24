@@ -2,14 +2,11 @@ from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import AuthenticationFailed
-from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import User, StudentInvite, normalize_phone
+from .tokens import issue_tokens
 
 
-def issue_tokens(user):
-    refresh = RefreshToken.for_user(user)
-    return {'access': str(refresh.access_token), 'refresh': str(refresh)}
 
 
 

@@ -7,6 +7,7 @@ from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
 from apps.lessons.models import Lesson
 from apps.users.models import User
+from apps.users.tokens import password_is_current
 from .models import WhiteboardYjsState
 from .permissions import IsHocuspocus
 
@@ -60,6 +61,11 @@ class ValidateAccessView(APIView):
         try:
             user = User.objects.get(id=access_token['user_id'])
         except (KeyError, User.DoesNotExist):
+            return Response({'detail': 'Невалидный токен.'}, status=status.HTTP_403_FORBIDDEN)
+
+        # Сменился пароль — токен, выданный до этого, на доску не пускает,
+        # как и в API (apps/users/tokens.py)
+        if not user.is_active or not password_is_current(access_token, user):
             return Response({'detail': 'Невалидный токен.'}, status=status.HTTP_403_FORBIDDEN)
 
         if not lesson.is_participant(user):

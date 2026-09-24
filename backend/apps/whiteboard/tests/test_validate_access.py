@@ -13,13 +13,15 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
+from apps.users.tokens import issue_tokens
+
 pytestmark = pytest.mark.django_db
 
 SECRET = {'HTTP_X_HOCUSPOCUS_SECRET': 'test-secret'}
 
 
 def token_for(user):
-    return str(RefreshToken.for_user(user).access_token)
+    return issue_tokens(user)['access']
 
 
 def guest_token(lesson, name='Гость'):
@@ -181,3 +183,25 @@ def test_snapshot_endpoint_is_gone(api, make_lesson, student, teacher):
     api.force_authenticate(teacher)
 
     assert api.get(f'/api/whiteboard/{lesson.id}/snapshot/').status_code == 404
+
+
+# ── Смена пароля ─────────────────────────────────────────────────────────────
+
+def test_token_issued_before_password_change_is_refused(api, make_lesson, student):
+    """На доску, как и в API, не пускает токен, выданный до смены пароля."""
+    lesson = make_lesson([student])
+    token = token_for(student)
+    student.set_password('NewStrongPass42')
+    student.save()
+
+    response = api.post('/api/whiteboard/validate-access/', {'token': token, 'room_id': str(lesson.room_id)}, **SECRET)
+    assert response.status_code == 403
+
+
+def test_token_without_password_stamp_is_refused(api, make_lesson, student):
+    """Токен в обход issue_tokens — без отпечатка — не годится."""
+    lesson = make_lesson([student])
+    token = str(RefreshToken.for_user(student).access_token)
+
+    response = api.post('/api/whiteboard/validate-access/', {'token': token, 'room_id': str(lesson.room_id)}, **SECRET)
+    assert response.status_code == 403

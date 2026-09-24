@@ -160,3 +160,52 @@ def test_sessions_of_other_users_survive(api, student, classmate):
 
     assert not BlacklistedToken.objects.filter(token__user=classmate).exists()
     assert api.post('/api/auth/refresh/', {'refresh': session}).status_code == 200
+
+
+# ── Смена пароля гасит и access ──────────────────────────────────────────────
+
+def access_of(client, user, password):
+    return client.post(LOGIN, {'phone': user.phone, 'password': password}).data['access']
+
+
+def test_access_token_stops_working_right_after_password_change(api, student):
+    """
+    Access нигде не хранится, и блэклистом его не отозвать: раньше выданный
+    до сброса он жил ещё час. Теперь в нём отпечаток пароля.
+    """
+    access = access_of(api, student, 'studentpass1')
+    api.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+    assert api.get('/api/auth/me/').status_code == 200
+
+    student.set_password('NewStrongPass42')
+    student.save()
+
+    response = api.get('/api/auth/me/')
+    assert response.status_code == 401
+    assert response.data['code'] == 'password_changed'
+
+
+def test_refreshed_access_keeps_working(api, student):
+    """Обновлённый access наследует отпечаток из refresh."""
+    tokens = api.post(LOGIN, {'phone': student.phone, 'password': 'studentpass1'}).data
+    access = api.post('/api/auth/refresh/', {'refresh': tokens['refresh']}).data['access']
+
+    api.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+    assert api.get('/api/auth/me/').status_code == 200
+
+
+def test_token_without_password_stamp_is_refused(api, student):
+    """Выданные до этой защиты токены отпечатка не несут: один раз войти заново."""
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    api.credentials(HTTP_AUTHORIZATION=f'Bearer {RefreshToken.for_user(student).access_token}')
+    assert api.get('/api/auth/me/').status_code == 401
+
+
+def test_other_profile_edits_keep_access(api, student):
+    access = access_of(api, student, 'studentpass1')
+    student.alias = 'Мотя'
+    student.save()
+
+    api.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+    assert api.get('/api/auth/me/').status_code == 200

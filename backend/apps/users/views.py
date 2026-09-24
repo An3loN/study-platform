@@ -16,8 +16,8 @@ from .serializers import (
     StudentCreateSerializer,
     InviteInfoSerializer,
     InviteAcceptSerializer,
-    issue_tokens,
 )
+from .tokens import issue_tokens
 
 
 class LoginView(ScopedThrottleMixin, APIView):

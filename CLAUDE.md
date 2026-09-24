@@ -339,7 +339,12 @@ docker compose -f docker-compose.dev.yml up -d --build
   ответа видно, зарегистрирован ли номер. Смена пароля откуда угодно
   (карточка ученика, админка) гасит refresh-токены в `User.save()`:
   сбрасывают пароль обычно тогда, когда доступ ушёл в чужие руки.
-  Access-токены доживают свой час — отзывать их нечем. `/api/whiteboard/`
+  Access не хранится, и блэклистом его не отозвать, поэтому в токен кладётся
+  отпечаток хеша пароля (`apps/users/tokens.py`, тот же приём, что у сессий
+  Django — `get_session_auth_hash`), а `PasswordBoundJWTAuthentication` и
+  `validate-access/` сверяют его с нынешним. Выпускать токены — только через
+  `issue_tokens`: `RefreshToken.for_user` отпечатка не ставит, и такой
+  токен не пройдёт проверку. `/api/whiteboard/`
   закрыт в прод-nginx, секрет Hocuspocus сравнивается `hmac.compare_digest`.
   Приглашение принимается под `select_for_update`. Не-UUID в `?student=` и
   в теле запросов — 400, а не 500. Отмечать задание выполненным может только
