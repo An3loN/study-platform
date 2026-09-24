@@ -92,8 +92,6 @@ services:
     restart: unless-stopped
     env_file: .env
     depends_on:
-      redis:
-        condition: service_healthy
       backend:
         condition: service_started
 
@@ -135,7 +133,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    # Память ограничена намеренно: Redis держит только состояние доски и
+    # Память ограничена намеренно: Redis держит только лимиты входа и
     # очередь Celery, а на сервере с двумя гигабайтами он не должен вытеснить
     # приложение
     command: >

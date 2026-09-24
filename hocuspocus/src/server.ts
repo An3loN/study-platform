@@ -1,13 +1,10 @@
 import * as Y from 'yjs'
 import { Server, onAuthenticatePayload, onLoadDocumentPayload, onStoreDocumentPayload } from '@hocuspocus/server'
-import { Redis } from '@hocuspocus/extension-redis'
 import { validateAccess, loadYjsState, saveYjsState } from './api.js'
 import { pruneUnusedFilesIfIdle } from './cleanup.js'
 import type { ConnectionContext } from './types.js'
 
 const PORT = parseInt(process.env.HOCUSPOCUS_PORT ?? '1234', 10)
-const REDIS_HOST = process.env.REDIS_HOST ?? 'redis'
-const REDIS_PORT = parseInt(process.env.REDIS_PORT ?? '6379', 10)
 
 // Имя документа = room_id урока (UUID), передаётся клиентом при подключении
 const server = Server.configure({
@@ -87,14 +84,11 @@ const server = Server.configure({
     }
   },
 
-  extensions: [
-    new Redis({
-      host: REDIS_HOST,
-      port: REDIS_PORT,
-      // Отдельная DB (2): в 1 очередь Celery, в 3 кеш Django
-      options: { db: 2 },
-    }),
-  ],
+  // Redis-расширения нет намеренно: оно нужно, только когда экземпляров
+  // Hocuspocus несколько и они пересылают друг другу правки одной комнаты.
+  // Экземпляр один — расширение лишь гоняло каждую правку через Redis и
+  // делало его обязательным для доски. Понадобится второй экземпляр —
+  // вернуть @hocuspocus/extension-redis (db 2 для него свободна).
 })
 
 server.listen().then(() => {

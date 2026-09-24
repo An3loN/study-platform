@@ -12,7 +12,7 @@
 | `backend` | Django 5.2 + DRF, WSGI под gunicorn | 8000 |
 | `hocuspocus` | Node-сервер совместного редактирования Yjs | 1234 |
 | `postgres` | БД | 5432 |
-| `redis` | Celery (db 1), Hocuspocus (db 2), кеш Django (db 3) | 6379 |
+| `redis` | Celery (db 1), кеш Django (db 3) | 6379 |
 
 Ключевые связи:
 
@@ -79,7 +79,7 @@ docker compose -f docker-compose.dev.yml up -d --build
 - Чат и весь WS-слой Django удалены: приложение `notifications`, `channels`,
   `channels-redis`, `CHANNEL_LAYERS`, `location /ws/` в nginx, прокси `/ws`
   в Vite. Состав комнаты показывает сама доска — источником стал awareness,
-  тот же, что рисует курсоры. Redis остался под Celery и Hocuspocus, db 0
+  тот же, что рисует курсоры. Redis остался под Celery и кеш Django, db 0
   больше не используется. Заодно ушёл единственный JWT в query string.
 - **Статус урока вычисляется из времени** (`Lesson.status` — свойство, не
   колонка): до `scheduled_at` «запланирован», до `scheduled_at + duration`
@@ -401,7 +401,11 @@ docker compose -f docker-compose.dev.yml up -d --build
   2 и 10): при уходе последнего участника — сразу.
 - `saveYjsState` повторяет попытки на сетевых и 5xx ошибках и логирует потерю;
   раньше один неудачный PUT молча стирал доску за весь урок.
-- `REDIS_PORT` добавлен в `.env.example` — его читает `hocuspocus/src/server.ts`.
+- **Hocuspocus без Redis.** `@hocuspocus/extension-redis` нужен, только когда
+  экземпляров несколько и они пересылают друг другу правки одной комнаты.
+  Экземпляр один: расширение гоняло каждую правку через Redis и делало его
+  обязательным для доски. `REDIS_HOST`/`REDIS_PORT` из `.env.example` ушли
+  вместе с ним. Понадобится второй экземпляр — вернуть (db 2 свободна).
 - `location /static/` добавлен в `nginx/nginx.dev.conf`: без него статика админки
   и debug-toolbar уходила в `location /` на Vite и возвращалась как `index.html`.
   В prod-конфиге `/static/` уже отдавался из общего volume.
